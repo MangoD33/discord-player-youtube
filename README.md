@@ -15,7 +15,7 @@ npm i discord-player-distube-extractor
 ## Supported Platforms
 
 - YouTube (search, videos, playlists and mixes)
-- Still under development - playlist and mixes NOT working ATM.
+- Still under development - Youtube mixes are NOT working ATM.
 
 ## Usage
 

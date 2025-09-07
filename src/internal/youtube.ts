@@ -161,6 +161,41 @@ export async function resolve(url: string): Promise<NormalizedResult> {
                 requestOptions: { headers: authHeaders() },
             });
 
+            // If this looks like a dynamic Mix (RD*) and only yields 0/1 items via ytpl,
+            // synthesize a playlist from the current video + related instead of returning a single track.
+            if (/^RD/i.test(String(info.id || playlistId)) && (info.items.length <= 1)) {
+                try {
+                    const basic = ytdl.validateURL(url)
+                        ? await ytdl.getBasicInfo(url, mergedYtdlOptions())
+                        : null;
+                    const firstItem: NormalizedItem | null = basic
+                        ? {
+                            source: "youtube",
+                            url: basic.videoDetails.video_url || `https://youtu.be/${basic.videoDetails.videoId}`,
+                            title: basic.videoDetails.title ?? "Unknown",
+                            author: basic.videoDetails.author?.name || (basic.videoDetails.author as any)?.user || "Unknown",
+                            durationMS: (basic.videoDetails.isLive ? 0 : toSecond(basic.videoDetails.lengthSeconds)) * 1000,
+                            thumbnail: basic.videoDetails.thumbnails?.sort((a, b) => b.width - a.width)?.[0]?.url,
+                            isLive: Boolean(basic.videoDetails.isLive),
+                            raw: { info: basic },
+                        }
+                        : null;
+                    const rel = ytdl.validateURL(url) ? await related(url) : await search(url);
+                    const items = (firstItem ? [firstItem] : []).concat(rel.items);
+                    return {
+                        playlist: {
+                            id: String(info.id || playlistId),
+                            title: "YouTube Mix",
+                            url,
+                            thumbnail: firstItem?.thumbnail ?? rel.items[0]?.thumbnail,
+                        },
+                        items,
+                    };
+                } catch {
+                    // If mix synthesis fails, fall back to the raw ytpl result below
+                }
+            }
+
             const items: NormalizedItem[] = info.items.map(i => ({
                 source: "youtube",
                 url: (i as any).shortUrl || i.url,
