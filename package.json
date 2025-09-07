@@ -1,0 +1,43 @@
+{
+  "name": "discord-player-distube-extractor",
+  "version": "0.1.0",
+  "description": "A discord-player extractor powered by DisTube.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "discord-player",
+    "extractor",
+    "music",
+    "discord"
+  ],
+  "author": "MangoD33",
+  "license": "CC-BY-4.0",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.15.0",
+    "@distube/ytpl": "^1.2.1",
+    "@distube/ytsr": "^2.0.4",
+    "discord-player": "^7.1.0",
+    "undici": "^6.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "discord.js": "^14.14.1",
+    "typescript": "^5.9.2"
+  }
+}
