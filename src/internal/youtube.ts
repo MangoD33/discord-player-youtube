@@ -1,6 +1,7 @@
 import ytpl from "@distube/ytpl";
 import ytsr from "@distube/ytsr";
 import ytdl from "@distube/ytdl-core";
+import * as ToughCookie from "tough-cookie";
 import {
     msFromDurationLike,
     toSecond,
@@ -12,7 +13,8 @@ import {
 
 
 export type YouTubeOptions = {
-    cookies?: ytdl.Cookie[];
+    // Accept a cookie header string (e.g. "SID=...; HSID=...;") or an array of Cookie objects
+    cookies?: string | ytdl.Cookie[];
     ytdlOptions?: ytdl.getInfoOptions;
 };
 
@@ -21,8 +23,26 @@ let _cookies: ytdl.Cookie[] | undefined;
 let _ytdlOptions: ytdl.getInfoOptions = {};
 let _agent: ReturnType<typeof ytdl.createAgent> | undefined;
 
+function toCookieArray(cookies?: string | ytdl.Cookie[]): ytdl.Cookie[] | undefined {
+    if (!cookies) return undefined;
+    if (typeof cookies !== "string") return clone(cookies);
+    try {
+        // Split standard Cookie header into individual pairs and parse
+        const arr = cookies
+            .split(";")
+            .map(c => c.trim())
+            .filter(Boolean)
+            .map(c => ToughCookie.Cookie.parse(c))
+            .filter(Boolean) as unknown as ytdl.Cookie[];
+        return arr;
+    } catch {
+        // Fallback: ignore invalid cookie string
+        return undefined;
+    }
+}
+
 export function configure(opts: YouTubeOptions = {}) {
-    _cookies = opts.cookies ? clone(opts.cookies) : undefined;
+    _cookies = toCookieArray(opts.cookies);
     _ytdlOptions = opts.ytdlOptions ? clone(opts.ytdlOptions) : {};
     _agent = ytdl.createAgent(_cookies);
     _ytdlOptions.agent = _agent;

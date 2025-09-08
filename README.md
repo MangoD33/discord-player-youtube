@@ -27,8 +27,8 @@ const player = new Player(client);
 player.extractors.register(DisTubeExtractor, {
   // optional
   youtube: {
-    // cookies: <ytdl-core Cookie[]>,
-    // ytdlOptions: { highWaterMark: 1 << 25 }
+    cookies: "SID=...; HSID=...; ..." || ytdl-core Cookie[],
+    ytdlOptions: { }
   }
 });
 ```
@@ -37,8 +37,8 @@ Then use discord-player as usual (`player.play(...)`, etc.).
 
 ## Options
 
-- `youtube.cookies?: ytdl.Cookie[]`
-  - Optional cookies for YouTube (e.g., to unlock age-restricted videos). These are cookie objects as accepted by `@distube/ytdl-core`.
+- `youtube.cookies?: string | ytdl.Cookie[]`
+  - Optional cookies for YouTube (e.g., to unlock age-restricted videos). Provide as a single `Cookie` header string (e.g., `"SID=...; HSID=..."`). An array of `@distube/ytdl-core` Cookie objects is also accepted.
 - `youtube.ytdlOptions?: ytdl.getInfoOptions`
   - Extra options forwarded to `@distube/ytdl-core` for info/stream extraction (e.g. headers, highWaterMark).
 
