@@ -1,8 +1,7 @@
-# discord-player-distube-extractor
+# Discord Player Distube Based Extractor
 
-A YouTube-only extractor for discord-player that uses the DisTube utilities under the hood:
-
-Cookies are supported for age-restricted content.
+A extractor for discord-player that uses the DisTube utilities under the hood.
+Only supports YouTube for now. May add support for other platforms in the future.
 
 ---
 
