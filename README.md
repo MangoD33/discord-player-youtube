@@ -8,7 +8,7 @@ Only supports YouTube for now. May add support for other platforms in the future
 ## Install
 
 ```bash
-npm i discord-player-distube-extractor
+npm i discord-player-distube
 ```
 
 ## Supported Platforms

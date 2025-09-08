@@ -1,6 +1,6 @@
 {
-  "name": "discord-player-distube-extractor",
-  "version": "0.1.2",
+  "name": "discord-player-distube",
+  "version": "0.9.0",
   "description": "A discord-player extractor powered by DisTube.",
   "type": "module",
   "main": "./dist/index.js",
