@@ -1,7 +1,7 @@
 {
-  "name": "discord-player-distube",
-  "version": "0.9.1",
-  "description": "A discord-player extractor powered by DisTube.",
+  "name": "discord-player-youtube",
+  "version": "0.5.0",
+  "description": "A YouTube extractor for Discord Player.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,29 +15,44 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -w -p tsconfig.json",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "test:smoke": "npm run -s build && node scripts/smoke-youtube.mjs",
+    "prepublishOnly": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json"
   },
   "keywords": [
     "discord-player",
+    "youtube",
     "extractor",
     "music",
     "discord"
   ],
   "author": "MangoD33",
   "license": "CC-BY-4.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MangoD33/discord-player-youtube.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MangoD33/discord-player-youtube"
+  },
   "dependencies": {
     "@distube/ytdl-core": "^4.15.0",
-    "@distube/ytpl": "^1.2.1",
-    "@distube/ytsr": "^2.0.4",
+    "bgutils-js": "^3.2.0",
     "discord-player": "^7.1.0",
-    "undici": "^6.20.1"
+    "jsdom": "^26.1.0",
+    "undici": "^6.20.1",
+    "youtubei.js": "^15.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",
     "discord.js": "^14.14.1",
     "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "@distube/yt-dlp": "^2.0.0",
+    "@distube/ytpl": "^1.2.3",
+    "@distube/ytsr": "^2.0.4"
   }
 }

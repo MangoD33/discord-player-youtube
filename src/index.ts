@@ -1,3 +1,4 @@
-// Use explicit .js extension for ESM compatibility
-export * from "./DistubeExtractor.js";
-export { default as DisTubeExtractor } from "./DistubeExtractor.js";
+﻿// Use explicit .js extension for ESM compatibility
+export * from "./YouTubeExtractor.js";
+export { default as YouTubeExtractor } from "./YouTubeExtractor.js";
+
