@@ -7,23 +7,23 @@
 } from "discord-player";
 
 import {
-    dispatchResolve,
     dispatchRelated,
     buildTrack,
     buildPlaylistMeta,
     streamViaPriority,
     type NormalizedItem,
-    searchViaPriority
+    searchViaPriority,
+    resolveViaPriority
 } from "./internal/utils.js";
 
 import * as yt from "./internal/youtube.js";
-import { configureYTJS } from "./internal/ytjs.js";
+import { configureYTJS, getYTJSClient } from "./internal/ytjs.js";
 import type { YouTubeOptions } from "./internal/youtube.js";
 import { QueryType } from "discord-player";
 import { setStreamOptions, getStreamOptions, createReadableFromUrl } from "./internal/utils.js";
 
 type ExtractorInitOptions = {
-    youtube?: import("./internal/youtube.js").YouTubeOptions;
+    youtube?: YouTubeOptions;
     // Optional: override extractor registration priority (higher runs first)
     priority?: number;
     // Optional: TV OAuth tokens string for youtubei.js sign-in (semicolon-separated key=value pairs)
@@ -32,6 +32,8 @@ type ExtractorInitOptions = {
     cookie?: any;
     // Optional: generate and use a PoToken for youtubei.js
     generateWithPoToken?: boolean;
+    // Optional: override raw Innertube config passed to youtubei.js
+    innertubeConfigRaw?: Record<string, unknown> | null;
     // Optional: control streaming behavior
     streamOptions?: {
         // Preferred Innertube client for stream URL selection (e.g. 'ANDROID', 'WEB', 'TV', 'ANDROID_MUSIC')
@@ -54,7 +56,9 @@ export class YouTubeExtractor extends BaseExtractor<ExtractorInitOptions> {
             this.priority = init.priority;
         }
         yt.configure(init.youtube ?? {});
-        configureYTJS({ authentication: init.authentication, cookie: init.cookie, generateWithPoToken: init.generateWithPoToken });
+        configureYTJS({ authentication: init.authentication, cookie: init.cookie, generateWithPoToken: init.generateWithPoToken, innertubeConfigRaw: init.innertubeConfigRaw });
+        // Eagerly initialize ytjs client to perform authentication during activation
+        try { await getYTJSClient(); } catch { /* ignore */ }
         if (init.streamOptions) setStreamOptions(init.streamOptions);
         this.protocols = ["ytsearch", "yt", "youtube"];
     }
@@ -83,7 +87,7 @@ export class YouTubeExtractor extends BaseExtractor<ExtractorInitOptions> {
         const isSearch = context.type === QueryType.YOUTUBE_SEARCH || context.type === QueryType.AUTO_SEARCH;
         const resolved = isSearch
             ? await searchViaPriority(query, { type: "video", limit: 20 })
-            : await dispatchResolve(query);
+            : await resolveViaPriority(query);
 
         const playlistObj = resolved.playlist ? buildPlaylistMeta(this.context.player, resolved.playlist) : null;
         const tracks: Track[] = resolved.items.map(i => buildTrack(this.context.player, i, context, playlistObj, this));

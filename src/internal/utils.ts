@@ -1,11 +1,10 @@
-import type { ExtractorSearchContext } from "discord-player";
+import type { ExtractorSearchContext, Player } from "discord-player";
 import { Track, Playlist, Util } from "discord-player";
 import { randomBytes } from "node:crypto";
 import * as ToughCookie from "tough-cookie";
 import * as youtube from "./youtube.js";
 import ytdl, { ytdlResolveVideo } from "./ytdl.js";
 import { ytjsSearch, ytjsResolvePlaylist, ytjsResolveMix, ytjsResolveVideo, streamUrl as ytjsStreamUrl } from "./ytjs.js";
-import ytdlp from "./ytdlp.js";
 import type { Cookie as YTDLCookie } from "./ytdl.js";
 import { ytsrSearch } from "./ytsr.js";
 import { ytplResolve } from "./ytpl.js";
@@ -15,11 +14,11 @@ export async function dispatchRelated(track: Track): Promise<NormalizedResult> {
 }
 
 export function buildTrack(
-    player: import("discord-player").Player,
+    player: Player,
     item: NormalizedItem,
     ctx: ExtractorSearchContext,
     playlist?: Playlist | null,
-    extractor?: any | null
+    extractor?: any | null,
 ): Track {
     const durationTC = Util.buildTimeCode(Util.parseMS(item.durationMS || 0));
     const t = new Track(player, {
@@ -42,8 +41,8 @@ export function buildTrack(
 }
 
 export function buildPlaylistMeta(
-    player: import("discord-player").Player,
-    meta: { id: string; title?: string; url?: string; thumbnail?: string }
+    player: Player,
+    meta: { id: string; title?: string; url: string; thumbnail?: string }
 ): Playlist {
     return new Playlist(player, {
         title: meta.title ?? "unknown",
@@ -54,7 +53,7 @@ export function buildPlaylistMeta(
         author: { name: "unknown", url: "" },
         tracks: [],
         id: meta.id,
-        url: meta.url ?? "",
+        url: meta.url,
         rawPlaylist: meta,
     });
 }
@@ -127,7 +126,7 @@ export type NormalizedItem = {
 };
 
 export type NormalizedResult = {
-    playlist: { id: string; title?: string; url?: string; thumbnail?: string } | null;
+    playlist: { id: string; title?: string; url: string; thumbnail?: string, } | null;
     items: NormalizedItem[];
 };
 
@@ -185,14 +184,9 @@ export function parseNumber(input: any): number {
     return Number(input) || 0;
 }
 
-export async function dispatchResolve(url: string): Promise<NormalizedResult> {
-    return resolveViaPriority(url);
-}
-
-
 // Priority configuration
 export type Aspect = 'search' | 'playlist' | 'mix' | 'video' | 'stream' | 'bridge';
-export type Provider = 'ytdl' | 'ytjs' | 'ytdlp' | 'ytsr' | 'ytpl';
+export type Provider = 'ytdl' | 'ytjs' | 'ytsr' | 'ytpl';
 
 const defaultPriorities: Record<Aspect, Provider[]> = {
     search: ['ytjs', 'ytsr'],
@@ -200,7 +194,7 @@ const defaultPriorities: Record<Aspect, Provider[]> = {
     // For mixes, rely solely on ytjs
     mix: ['ytjs'],
     video: ['ytjs', 'ytdl'],
-    stream: ['ytjs', 'ytdl', 'ytdlp'],
+    stream: ['ytjs', 'ytdl'],
     bridge: ['ytjs', 'ytdl'],
 };
 
@@ -232,14 +226,31 @@ export async function streamViaPriority(url: string): Promise<string> {
         try {
             if (p === 'ytdl') return await ytdl.streamUrl(url);
             if (p === 'ytjs') return await ytjsStreamUrl(url, ytdl.cookie(), _streamOptions.useClient);
-            if (p === 'ytdlp') return await ytdlp.streamUrl(url);
         } catch (e) { lastErr = e; }
     }
     throw lastErr || new Error('NO_STREAM_PROVIDER');
 }
 
-function extractPlaylistIdFromUrl(href: string): string | null {
-    try { const u = new URL(href); const list = u.searchParams.get("list"); if (list && list.trim().length > 0) return list.trim(); } catch { }
+export function extractPlaylistIdFromUrl(href: string): string | null {
+    // Try URL parsing (querystring + hash fragment)
+    try {
+        const u = new URL(href);
+        // Regular query param
+        const listQ = u.searchParams.get("list");
+        if (listQ && listQ.trim().length > 0) return listQ.trim();
+        // Sometimes shared links place params in the hash fragment
+        if (u.hash) {
+            const raw = u.hash.replace(/^#/, "");
+            const sp = new URLSearchParams(raw);
+            const listH = sp.get("list");
+            if (listH && listH.trim().length > 0) return listH.trim();
+        }
+    } catch { /* ignore */ }
+    // Fallback: loose match in the entire string
+    try {
+        const m = href.match(/[?#&]list=([^&#]+)/i);
+        if (m && m[1]) return decodeURIComponent(m[1]).trim();
+    } catch { /* ignore */ }
     return null;
 }
 // ytsr/ytpl are handled by dedicated modules
@@ -357,6 +368,9 @@ export async function generatePoTokenForInnertube(innertube: any): Promise<strin
         return generatePoToken();
     }
 }
+
+// Sanitize YouTube URLs by stripping unnecessary query params and normalizing host/path
+// (Reverted) URL sanitization helpers were removed to scope changes only to buildTrack/buildPlaylistMeta
 
 // Simple HTTP reader for a given URL with optional buffering highWaterMark
 // Returns a Readable stream piped through a PassThrough using the provided highWaterMark

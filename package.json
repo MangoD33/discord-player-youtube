@@ -1,6 +1,6 @@
 {
   "name": "discord-player-youtube",
-  "version": "0.5.0",
+  "version": "0.5.6",
   "description": "A YouTube extractor for Discord Player.",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,7 +51,6 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
-    "@distube/yt-dlp": "^2.0.0",
     "@distube/ytpl": "^1.2.3",
     "@distube/ytsr": "^2.0.4"
   }

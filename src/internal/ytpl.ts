@@ -1,14 +1,13 @@
 import ytpl from "@distube/ytpl";
 import ytdl from "./ytdl.js";
 import { toSecond, type NormalizedItem, type NormalizedResult } from "./utils.js";
-import { ytsrSearch } from "./ytsr.js";
 
 function extractPlaylistId(href: string): string | null {
   try { const u = new URL(href); const list = u.searchParams.get("list"); if (list && list.trim().length > 0) return list.trim(); } catch { }
   return null;
 }
 
-async function relatedFromBasic(url: string): Promise<NormalizedResult> {
+export async function relatedFromBasic(url: string): Promise<NormalizedResult> {
   const basic = await ytdl.getBasicInfo(url, ytdl.options());
   const related = (basic.related_videos?.filter((r: any) => r.id) ?? [])
     .filter((r: any) => { const len = Number((r as any).length_seconds) || 0; return len === 0 || len >= 60; });

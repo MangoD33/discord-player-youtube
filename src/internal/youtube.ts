@@ -11,6 +11,7 @@ import {
 import { ytsrSearch } from "./ytsr.js";
 import { ytplResolve } from "./ytpl.js";
 import { ytjsResolveMix } from "./ytjs.js";
+import { extractPlaylistIdFromUrl } from "./utils.js";
 
 export type YouTubeOptions = {
     // Accept a cookie header string (e.g. "SID=...; HSID=...;") or an array of Cookie objects
@@ -46,9 +47,7 @@ export async function resolve(url: string): Promise<NormalizedResult> {
     ensureAgent();
     // Delegate playlists to appropriate resolver: ytjs for mixes, ytpl for regular playlists
     try {
-        const playlistId = (() => {
-            try { const u = new URL(url); const list = u.searchParams.get("list"); return list && list.trim().length > 0 ? list.trim() : null; } catch { return null; }
-        })();
+        const playlistId = extractPlaylistIdFromUrl(url);
         if (playlistId) {
             const isMix = /^RD/i.test(String(playlistId));
             if (isMix) {

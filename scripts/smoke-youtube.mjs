@@ -38,8 +38,10 @@ async function runAll() {
     }
   }
 
-  const playlistUrl = 'https://www.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj';
-  const mixUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ';
+  const playlistUrl =
+    'https://www.youtube.com/playlist?list=PLMC9KNkIncKtPzgY-5rmhvj7fax8fdxoj';
+  const mixUrl =
+    'https://www.youtube.com/watch?v=uxpDa-c-4Mc&list=RDEMEPsGcPqqzpBxP-gtt4OYKg';
   const videoUrl = 'https://youtu.be/dQw4w9WgXcQ';
   const searchQuery = 'rick astley never gonna give you up';
 
@@ -74,7 +76,8 @@ async function runAll() {
       if (res.tracks.length < 1) throw new Error('expected playlist items');
       return { title: res.playlist.title, count: res.tracks.length };
     }
-    if (res.tracks.length !== 1) throw new Error('expected single item fallback');
+    if (res.tracks.length !== 1)
+      throw new Error('expected single item fallback');
     return res.tracks[0].title;
   });
 
