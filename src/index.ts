@@ -1,1 +1,1 @@
-export * from './YouTubeExtractor.js';
+export * from "./YouTubeExtractor.js";

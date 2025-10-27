@@ -47,7 +47,7 @@ export async function createSabrStream(
   try {
     accountInfo = await innertube.account.getInfo();
   } catch (error) {
-    throw error;
+    // Continue without account info; will fall back to visitorData
   }
   const dataSyncId =
     accountInfo?.contents?.contents[0]?.endpoint?.payload?.supportedTokens?.[2]

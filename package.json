@@ -1,6 +1,6 @@
 {
   "name": "discord-player-youtube",
-  "version": "0.5.6",
+  "version": "0.7.1",
   "description": "A YouTube extractor for Discord Player.",
   "type": "module",
   "main": "./dist/index.js",
@@ -41,13 +41,15 @@
     "@napi-rs/canvas": "^0.1.81",
     "bgutils-js": "^3.2.0",
     "discord-player": "^7.1.0",
+    "dotenv": "^16.4.5",
     "googlevideo": "^4.0.4",
     "jsdom": "^27.0.1",
-    "dotenv": "^16.4.5",
     "youtubei.js": "^16.0.1"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "@types/jsdom": "^21.1.7"
+    "@types/jsdom": "^21.1.7",
+    "discord-api-types": "^0.38.31",
+    "discord.js": "^14.24.0",
+    "typescript": "^5.9.3"
   }
 }

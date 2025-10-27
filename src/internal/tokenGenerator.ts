@@ -36,8 +36,14 @@ function patchCanvasSupport(window: DOMWindow): void {
   ): any {
     if (type !== "2d") return null;
 
-    const width = Number.isFinite(this.width as any) && (this.width as any) > 0 ? (this.width as any) : 300;
-    const height = Number.isFinite(this.height as any) && (this.height as any) > 0 ? (this.height as any) : 150;
+    const width =
+      Number.isFinite(this.width as any) && (this.width as any) > 0
+        ? (this.width as any)
+        : 300;
+    const height =
+      Number.isFinite(this.height as any) && (this.height as any) > 0
+        ? (this.height as any)
+        : 150;
 
     const state = this._napiCanvasState || {};
 
@@ -58,8 +64,14 @@ function patchCanvasSupport(window: DOMWindow): void {
     ...args: any[]
   ): string {
     if (!this._napiCanvasState?.canvas) {
-      const width = Number.isFinite(this.width as any) && (this.width as any) > 0 ? (this.width as any) : 300;
-      const height = Number.isFinite(this.height as any) && (this.height as any) > 0 ? (this.height as any) : 150;
+      const width =
+        Number.isFinite(this.width as any) && (this.width as any) > 0
+          ? (this.width as any)
+          : 300;
+      const height =
+        Number.isFinite(this.height as any) && (this.height as any) > 0
+          ? (this.height as any)
+          : 150;
       this._napiCanvasState = {
         canvas: createCanvas(width, height),
         context: null,
