@@ -35,7 +35,11 @@ This extractor works out of the box, but for best stability, you should provide 
 
 - `YOUTUBE_COOKIE` (optional, recommended): A full YouTube cookie string from your browser session. This improves request stability and may help with age‑restricted or region‑locked content.
 
-Where to set it:
+#### Getting your YouTube cookie
+
+For a step-by-step guide on how to obtain a valid YouTube cookie from your browser session, follow the [official youtubei.js documentation](https://ytjs.dev/guide/authentication.html#cookies).
+
+#### Where to set it:
 
 1. In an `.env` file (dotenv is automatically loaded):
 
@@ -45,9 +49,9 @@ YOUTUBE_COOKIE=VISITOR_INFO1_LIVE=...; PREF=...; YSC=...; __Secure-...=...;
 
 2. Or as an environment variable in your process manager (PM2, Docker, systemd, etc.).
 
-Notes and tips:
+#### Notes and tips:
 
-- Use a dedicated YouTube account if possible. Do not share personal cookies.
+- Use a throwaway YouTube account. Do not share personal cookies.
 - If you rotate or remove the cookie, restart your bot process to pick up changes.
 
 ## License

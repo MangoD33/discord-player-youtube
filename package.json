@@ -1,6 +1,6 @@
 {
   "name": "discord-player-youtube",
-  "version": "0.7.1",
+  "version": "0.7.5",
   "description": "A YouTube extractor for Discord Player.",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,7 @@
   "scripts": {
     "prepare": "npm run build",
     "test:smoke": "npm run -s build && node scripts/smoke-youtube.mjs",
+    "test:smoke:stream": "npm run -s build && cross-env NODE_OPTIONS=--openssl-legacy-provider SMOKE_STREAM=1 node scripts/smoke-youtube.mjs",
     "prepublishOnly": "npm run build",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json"
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
+    "cross-env": "^7.0.3",
     "discord-api-types": "^0.38.31",
     "discord.js": "^14.24.0",
     "typescript": "^5.9.3"

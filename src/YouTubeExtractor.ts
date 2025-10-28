@@ -13,8 +13,17 @@ import type {
 } from "discord-player";
 import { Innertube, YTNodes, YT } from "youtubei.js/agnostic";
 import { getInnertube } from "./internal/getInnertube.js";
+import {
+  buildTrack,
+  buildPlaylistMeta,
+  msFromDurationLike,
+  textFromRuns,
+  extractVideoId,
+  searchYoutubeByQueryName,
+  checkIsUrl,
+  type NormalizedItem,
+} from "./internal/utils.js";
 import { createSabrStream } from "./internal/createSabr.js";
-import { Readable } from "node:stream";
 
 export class YoutubeExtractor extends BaseExtractor {
   public static identifier: string = "com.mangod33.discord-player-youtube";
@@ -31,40 +40,6 @@ export class YoutubeExtractor extends BaseExtractor {
       this._stream = (q: any) => {
         return fn(this, q);
       };
-
-    // Log cookie/account status to help users confirm setup
-    try {
-      const hasCookie =
-        typeof process !== "undefined" &&
-        !!process.env?.YOUTUBE_COOKIE &&
-        String(process.env.YOUTUBE_COOKIE).trim().length > 0;
-      if (hasCookie && this.innertube) {
-        try {
-          const acct: any = await this.innertube.account.getInfo();
-          const accountName =
-            acct?.header?.title?.text ||
-            acct?.header?.title ||
-            acct?.metadata?.title ||
-            acct?.name ||
-            null;
-          const msg = `[YoutubeExtractor] Cookie detected.${
-            accountName ? ` Account: ${accountName}` : ""
-          }`;
-          this.context?.player?.debug?.(msg);
-          if (!this.context?.player?.debug) console.log(msg);
-        } catch {
-          const msg = `[YoutubeExtractor] Cookie detected.`;
-          this.context?.player?.debug?.(msg);
-          if (!this.context?.player?.debug) console.log(msg);
-        }
-      } else {
-        const msg = `[YoutubeExtractor] No cookie set. Proceeding unauthenticated.`;
-        this.context?.player?.debug?.(msg);
-        if (!this.context?.player?.debug) console.log(msg);
-      }
-    } catch {
-      // ignore logging errors
-    }
   }
 
   async deactivate(): Promise<void> {
@@ -85,47 +60,36 @@ export class YoutubeExtractor extends BaseExtractor {
     context: ExtractorSearchContext
   ): Promise<ExtractorInfo> {
     if (!checkIsUrl(query)) {
-      let topResults: any[];
-      let results: YT.Search | undefined;
-      let trackResponse: Track[] = new Array<Track>();
-
       try {
         if (!this.innertube) throw new Error("Innertube not initialized");
-        results = await searchYoutubeByQueryName(this.innertube, query);
+
+        const results = await searchYoutubeByQueryName(this.innertube, query);
         if (!results) return this.createResponse(null, []);
 
-        topResults = results.results
+        const topResults = results.results
           .filter(
             (video: any): video is YTNodes.Video =>
-              video.type === "Video" && !!video.video_id
+              video?.type === "Video" && !!video?.video_id
           )
-          .slice(0, 3);
-        for (const r of topResults) {
-          let videoId: string = r.video_id;
+          .slice(0, 20);
 
-          const info = await this.innertube.getBasicInfo(videoId);
-          let durationMs: number = (info.basic_info?.duration ?? 0) * 1000;
-
-          let trackObj: Track = new Track(this.context.player, {
-            title: info.basic_info?.title ?? "UNKNOWN TITLE",
-            author: info.basic_info?.author ?? "UNKNOWN AUTHOR",
-            thumbnail: info.basic_info?.thumbnail?.[0]?.url ?? undefined,
-            url: `https://www.youtube.com/watch?v=${videoId}`,
-            duration: Util.buildTimeCode(Util.parseMS(durationMs)),
+        const tracks: Track[] = topResults.map((r) => {
+          const item: NormalizedItem = {
             source: "youtube",
-            requestedBy: context.requestedBy ?? undefined,
-            raw: {
-              basicInfo: info,
-              live: info.basic_info?.is_live || false,
-            },
-          });
-          trackResponse.push(trackObj);
-        }
-        return this.createResponse(null, trackResponse);
+            url: `https://www.youtube.com/watch?v=${r.video_id}`,
+            title: r.title?.text ?? "UNKNOWN TITLE",
+            author: r.author?.name ?? "UNKNOWN AUTHOR",
+            durationMS: (r.duration?.seconds ?? 0) * 1000,
+            thumbnail: r.best_thumbnail?.url ?? r.thumbnails?.[0]?.url,
+            isLive: !!r.is_live,
+            raw: r,
+          };
+          return buildTrack(this.context.player, item, context, null, this);
+        });
+
+        return this.createResponse(null, tracks);
       } catch (error) {
-        console.error(
-          `[Youtube Extractor Error] Error while searching by name: ${error}`
-        );
+        console.error(`[YouTubeExtractor] Search by name failed: ${error}`);
         return this.createResponse(null, []);
       }
     }
@@ -149,6 +113,61 @@ export class YoutubeExtractor extends BaseExtractor {
 
       if (isPlaylist && playlistId) {
         if (!this.innertube) throw new Error("Innertube not initialized");
+        const isMix = playlistId.startsWith("RD");
+
+        if (isMix) {
+          // Resolve YouTube Mix via /next endpoint
+          const videoIdFromUrl = extractVideoId(query);
+          const resp = await this.innertube.actions.execute("/next", {
+            videoId: videoIdFromUrl ?? undefined,
+            playlistId,
+          });
+          const root: any = (resp as any)?.data ?? {};
+          const playlistRoot: any =
+            root?.contents?.twoColumnWatchNextResults?.playlist?.playlist;
+          const contents: any[] = playlistRoot?.contents || [];
+          if (!contents.length) return this.createResponse(null, []);
+
+          const metaTitle = textFromRuns(playlistRoot?.title) || "YouTube Mix";
+          const dpPlaylist = buildPlaylistMeta(this.context.player, {
+            id: playlistId,
+            title: metaTitle,
+            url: query,
+            thumbnail: undefined,
+          });
+
+          const tracks = contents
+            .map((c: any) => (c as any).playlistPanelVideoRenderer)
+            .filter((v: any) => v?.videoId)
+            .map((v: any) => {
+              const item: NormalizedItem = {
+                source: "youtube",
+                url: `https://youtu.be/${v.videoId}`,
+                title: textFromRuns(v.title) || "UNKNOWN TITLE",
+                author:
+                  textFromRuns(v.shortBylineText) ||
+                  textFromRuns(v.longBylineText) ||
+                  "UNKNOWN AUTHOR",
+                durationMS: msFromDurationLike(
+                  textFromRuns(v.lengthText) || "0:00"
+                ),
+                thumbnail: v.thumbnail?.[0]?.url ?? null,
+                isLive: !v.lengthText,
+                raw: v,
+              };
+              return buildTrack(
+                this.context.player,
+                item,
+                context,
+                dpPlaylist,
+                this
+              );
+            });
+
+          dpPlaylist.tracks = tracks;
+          return this.createResponse(dpPlaylist, tracks);
+        }
+
         let playlist = await this.innertube.getPlaylist(playlistId);
         if (!playlist?.videos?.length) return this.createResponse(null, []);
 
@@ -178,29 +197,23 @@ export class YoutubeExtractor extends BaseExtractor {
         const playlistTracks = playlist.videos
           .filter((v): v is YTNodes.PlaylistVideo => v.type === "PlaylistVideo")
           .map((v: YTNodes.PlaylistVideo) => {
-            const duration = Util.buildTimeCode(
-              Util.parseMS(v.duration.seconds * 1000)
-            );
-            const raw = {
-              duration_ms: v.duration.seconds * 1000,
-              live: v.is_live,
-              duration,
-            };
-
-            return new Track(this.context.player, {
-              title: v.title.text ?? "UNKNOWN TITLE",
-              duration: duration,
-              thumbnail: v.thumbnails[0]?.url ?? undefined,
-              author: v.author.name,
-              requestedBy: context.requestedBy,
-              url: `https://youtube.com/watch?v=${v.id}`,
-              raw,
-              playlist: dpPlaylist,
+            const item: NormalizedItem = {
               source: "youtube",
-              queryType: "youtubeVideo",
-              metadata: raw,
-              live: v.is_live,
-            });
+              url: `https://youtube.com/watch?v=${v.id}`,
+              title: v.title.text ?? "UNKNOWN TITLE",
+              author: v.author?.name ?? "UNKNOWN AUTHOR",
+              durationMS: (v.duration?.seconds ?? 0) * 1000,
+              thumbnail: v.thumbnails?.[0]?.url ?? undefined,
+              isLive: v.is_live,
+              raw: v,
+            };
+            return buildTrack(
+              this.context.player,
+              item,
+              context,
+              dpPlaylist,
+              this
+            );
           });
 
         while (playlist.has_continuation) {
@@ -212,29 +225,23 @@ export class YoutubeExtractor extends BaseExtractor {
                 (v): v is YTNodes.PlaylistVideo => v.type === "PlaylistVideo"
               )
               .map((v: YTNodes.PlaylistVideo) => {
-                const duration = Util.buildTimeCode(
-                  Util.parseMS(v.duration.seconds * 1000)
-                );
-                const raw = {
-                  duration_ms: v.duration.seconds * 1000,
-                  live: v.is_live,
-                  duration,
-                };
-
-                return new Track(this.context.player, {
-                  title: v.title.text ?? "UNKNOWN TITLE",
-                  duration,
-                  thumbnail: v.thumbnails[0]?.url ?? undefined,
-                  author: v.author.name,
-                  requestedBy: context.requestedBy,
-                  url: `https://youtube.com/watch?v=${v.id}`,
-                  raw,
-                  playlist: dpPlaylist,
+                const item: NormalizedItem = {
                   source: "youtube",
-                  queryType: "youtubeVideo",
-                  metadata: raw,
-                  live: v.is_live,
-                });
+                  url: `https://youtube.com/watch?v=${v.id}`,
+                  title: v.title.text ?? "UNKNOWN TITLE",
+                  author: v.author?.name ?? "UNKNOWN AUTHOR",
+                  durationMS: (v.duration?.seconds ?? 0) * 1000,
+                  thumbnail: v.thumbnails?.[0]?.url ?? undefined,
+                  isLive: v.is_live,
+                  raw: v,
+                };
+                return buildTrack(
+                  this.context.player,
+                  item,
+                  context,
+                  dpPlaylist,
+                  this
+                );
               })
           );
         }
@@ -249,25 +256,26 @@ export class YoutubeExtractor extends BaseExtractor {
 
       if (!this.innertube) throw new Error("Innertube not initialized");
       const info = await this.innertube.getBasicInfo(videoId!);
-      const durationMs = (info.basic_info?.duration ?? 0) * 1000;
-
-      const trackObj = new Track(this.context.player, {
-        title: info.basic_info?.title ?? "UNKNOWN TITLE",
-        author: info.basic_info?.author ?? "UNKNOWN AUTHOR",
-        thumbnail: info.basic_info?.thumbnail?.[0]?.url ?? undefined,
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        duration: Util.buildTimeCode(Util.parseMS(durationMs)),
+      const item: NormalizedItem = {
         source: "youtube",
-        requestedBy: context.requestedBy ?? undefined,
-        raw: {
-          basicInfo: info,
-          live: info.basic_info?.is_live || false,
-        },
-      });
-
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        title: info.basic_info?.title ?? "UNKNOWN TITLE",
+        author: (info.basic_info?.author as any) ?? "UNKNOWN AUTHOR",
+        durationMS: (info.basic_info?.duration ?? 0) * 1000,
+        thumbnail: info.basic_info?.thumbnail?.[0]?.url ?? undefined,
+        isLive: info.basic_info?.is_live || false,
+        raw: { basicInfo: info },
+      };
+      const trackObj = buildTrack(
+        this.context.player,
+        item,
+        context,
+        null,
+        this
+      );
       return this.createResponse(null, [trackObj]);
     } catch (error) {
-      console.error(`[YoutubeExtractor Error]: ${error}`);
+      console.error(`[YouTubeExtractor] Handle error: ${error}`);
       return this.createResponse(null, []);
     }
   }
@@ -279,14 +287,18 @@ export class YoutubeExtractor extends BaseExtractor {
       const videoId = extractVideoId(track.url || (track.raw as any)?.id || "");
       if (!videoId) throw new Error("Unable to extract videoId.");
 
+      // Allow custom stream strategy when provided via options
+      if (this._stream) {
+        const custom = await this._stream(track);
+        if (custom) return custom as ExtractorStreamable;
+      }
+
       const nodeStream = await createSabrStream(videoId);
       if (!nodeStream) throw new Error("Failed to create stream");
 
-      return nodeStream;
+      return nodeStream as ExtractorStreamable;
     } catch (error) {
-      console.error(
-        `[Youtube Extractor Error] Error while creating stream: ${error}`
-      );
+      console.error(`[YouTubeExtractor] Stream error: ${error}`);
       throw error;
     }
   }
@@ -307,9 +319,10 @@ export class YoutubeExtractor extends BaseExtractor {
 
     const recommended = (next as unknown as YTNodes.CompactVideo[]).filter(
       (v: any) =>
+        v?.type === "CompactVideo" &&
         !history.tracks.some(
-          (x) => x.url === `https://youtube.com/watch?v=${v.id}`
-        ) && v.type === "CompactVideo"
+          (x) => x.url === `https://www.youtube.com/watch?v=${v.video_id}`
+        )
     );
 
     if (!recommended) {
@@ -329,10 +342,10 @@ export class YoutubeExtractor extends BaseExtractor {
 
       return new Track(this.context.player, {
         title: v.title?.text ?? "UNKNOWN TITLE",
-        thumbnail: v.best_thumbnail?.url ?? v.thumbnails[0]?.url,
+        thumbnail: v.best_thumbnail?.url ?? v.thumbnails?.[0]?.url,
         author: v.author?.name ?? "UNKNOWN AUTHOR",
         requestedBy: track.requestedBy ?? undefined,
-        url: `https://youtube.com/watch?v=${v.video_id}`,
+        url: `https://www.youtube.com/watch?v=${v.video_id}`,
         source: "youtube",
         duration,
         raw,
@@ -341,80 +354,80 @@ export class YoutubeExtractor extends BaseExtractor {
 
     return this.createResponse(null, trackConstruct);
   }
-}
 
-function extractVideoId(input: any): string | null {
-  if (typeof input !== "string" || input.length === 0) return null;
-  const s = input.trim();
+  // Bridge support: allow other extractors to request a YouTube-backed stream
+  async bridge(
+    track: Track,
+    _sourceExtractor: BaseExtractor | null
+  ): Promise<ExtractorStreamable | null> {
+    try {
+      if (!this.innertube) this.innertube = await getInnertube();
 
-  const idPattern = /^[a-zA-Z0-9_-]{11}$/;
-  if (idPattern.test(s)) return s;
+      // Build a base query using extractor-provided strategy if available
+      const baseQuery = (() => {
+        try {
+          const q = this.createBridgeQuery?.(track);
+          if (typeof q === "string" && q.trim().length > 0) return q;
+        } catch {}
+        const title = track?.title ?? "";
+        const author =
+          (track as any)?.author ?? (track as any)?.raw?.author ?? "";
+        return [author, title].filter(Boolean).join(" - ") || title || author;
+      })();
 
-  try {
-    const url = new URL(s);
-    const host = url.hostname.toLowerCase();
+      const makeEffectiveQuery = (q: string) => {
+        try {
+          const lower = (q || "").toLowerCase();
+          const tokens = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean));
+          const wantsAlt = [
+            "live",
+            "cover",
+            "remix",
+            "mix",
+            "sped",
+            "slowed",
+            "nightcore",
+            "8d",
+            "edit",
+            "mashup",
+            "reverb",
+            "lyrics",
+            "lyric",
+          ].some((w) => tokens.has(w));
+          const mentionsOfficial =
+            lower.includes("official audio") ||
+            lower.includes("official video") ||
+            tokens.has("official");
+          if (!wantsAlt && !mentionsOfficial) return `${q} official audio`;
+        } catch {}
+        return q;
+      };
 
-    // youtu.be/<id>
-    if (host === "youtu.be" || host.endsWith(".youtu.be")) {
-      const segs = url.pathname.split("/").filter(Boolean);
-      if (segs.length > 0 && idPattern.test(segs[0])) return segs[0];
-    }
+      const candidates = Array.from(
+        new Set([makeEffectiveQuery(baseQuery), baseQuery].filter(Boolean))
+      );
 
-    // *.youtube.com/watch?v=<id>
-    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
-      const v = url.searchParams.get("v");
-      if (v && idPattern.test(v)) return v;
-
-      // Support /shorts/<id>, /embed/<id>, /v/<id>
-      const segs = url.pathname.split("/").filter(Boolean);
-      if (segs.length >= 2) {
-        const [first, second] = segs;
-        if ((first === "shorts" || first === "embed" || first === "v") && idPattern.test(second)) {
-          return second;
+      let topVideoId: string | null = null;
+      for (const q of candidates) {
+        const results = await searchYoutubeByQueryName(this.innertube!, q);
+        const first = results?.results
+          .filter(
+            (v: any): v is YTNodes.Video => v?.type === "Video" && !!v?.video_id
+          )
+          .at(0);
+        if (first?.video_id) {
+          topVideoId = first.video_id;
+          break;
         }
       }
+
+      if (!topVideoId) return null;
+
+      const nodeStream = await createSabrStream(topVideoId);
+      return nodeStream ?? null;
+    } catch (error) {
+      console.error(`[YouTubeExtractor] Bridge error: ${error}`);
+      return null;
     }
-  } catch {}
-
-  const m = s.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
-  if (m) return m[1];
-
-  const parts = s.split(/[/?&#]/);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (idPattern.test(parts[i])) return parts[i];
   }
-
-  return null;
-}
-
-async function searchYoutubeByQueryName(
-  innertube: Innertube,
-  query: string
-): Promise<YT.Search | undefined> {
-  let search: YT.Search | undefined;
-  try {
-    search = await innertube.search(query);
-    if (!search || search.results.length === 0) return undefined;
-  } catch (error) {
-    console.error(
-      `[Youtube Extractor Error] Error while searching by name: ${error}`
-    );
-  }
-  return search;
-}
-
-function checkIsUrl(query: string): boolean {
-  let isUrl: boolean;
-  try {
-    new URL(query);
-    isUrl = true;
-  } catch (error) {
-    isUrl = false;
-  }
-  return (
-    isUrl ||
-    new RegExp("^https?://(www\\.)?(youtube\\.com|youtu\\.be)/", "i").test(
-      query
-    )
-  );
 }

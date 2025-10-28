@@ -47,7 +47,7 @@ export async function createSabrStream(
   try {
     accountInfo = await innertube.account.getInfo();
   } catch (error) {
-    // Continue without account info; will fall back to visitorData
+    throw error;
   }
   const dataSyncId =
     accountInfo?.contents?.contents[0]?.endpoint?.payload?.supportedTokens?.[2]
@@ -98,9 +98,8 @@ export async function createSabrStream(
     poToken: poToken,
     clientInfo: {
       clientName: parseInt(
-        Constants.CLIENT_NAME_IDS[
-          innertube.session.context.client
-            .clientName as keyof typeof Constants.CLIENT_NAME_IDS
+        (Constants.CLIENT_NAME_IDS as any)[
+          innertube.session.context.client.clientName as any
         ] as unknown as string
       ),
       clientVersion: innertube.session.context.client.clientVersion,
@@ -139,10 +138,6 @@ export async function createSabrStream(
       }
     }
   );
-
-  // serverAbrStream.on("error", (error: Error) => {
-  //     console.error("SABR stream error:", error);
-  // });
 
   const { audioStream } = await serverAbrStream.start(DEFAULT_OPTIONS);
   const nodeStream = toNodeReadable(audioStream);
