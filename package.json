@@ -1,6 +1,6 @@
 {
   "name": "discord-player-youtube",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "A YouTube extractor for Discord Player.",
   "type": "module",
   "main": "./dist/index.js",

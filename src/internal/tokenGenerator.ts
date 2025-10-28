@@ -1,16 +1,16 @@
 import { BG, GOOG_API_KEY, USER_AGENT, buildURL } from "bgutils-js";
 import { JSDOM, DOMWindow } from "jsdom";
 import { createCanvas, ImageData as CanvasImageData } from "@napi-rs/canvas";
-import { Innertube } from "youtubei.js/agnostic";
+import Innertube from "youtubei.js/agnostic";
 
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
 
-let domWindow: DOMWindow;
+let domWindow: DOMWindow | undefined;
 let initializationPromise: Promise<BG.WebPoMinter> | null = null;
 let botguardClient: BG.BotGuardClient | undefined;
 let webPoMinter: BG.WebPoMinter | undefined;
 let activeScriptId: string | null = null;
-let CanvasPatched: boolean = false;
+let CanvasPatched = false;
 
 interface InitOptions {
   forceRefresh?: boolean;
@@ -37,13 +37,9 @@ function patchCanvasSupport(window: DOMWindow): void {
     if (type !== "2d") return null;
 
     const width =
-      Number.isFinite(this.width as any) && (this.width as any) > 0
-        ? (this.width as any)
-        : 300;
+      Number.isFinite(this.width) && this.width > 0 ? this.width : 300;
     const height =
-      Number.isFinite(this.height as any) && (this.height as any) > 0
-        ? (this.height as any)
-        : 150;
+      Number.isFinite(this.height) && this.height > 0 ? this.height : 150;
 
     const state = this._napiCanvasState || {};
 
@@ -57,7 +53,7 @@ function patchCanvasSupport(window: DOMWindow): void {
     state.context = state.canvas.getContext("2d", options);
     this._napiCanvasState = state;
     return state.context;
-  } as any;
+  };
 
   HTMLCanvasElement.prototype.toDataURL = function (
     this: HTMLCanvasElement & { _napiCanvasState?: any },
@@ -65,13 +61,9 @@ function patchCanvasSupport(window: DOMWindow): void {
   ): string {
     if (!this._napiCanvasState?.canvas) {
       const width =
-        Number.isFinite(this.width as any) && (this.width as any) > 0
-          ? (this.width as any)
-          : 300;
+        Number.isFinite(this.width) && this.width > 0 ? this.width : 300;
       const height =
-        Number.isFinite(this.height as any) && (this.height as any) > 0
-          ? (this.height as any)
-          : 150;
+        Number.isFinite(this.height) && this.height > 0 ? this.height : 150;
       this._napiCanvasState = {
         canvas: createCanvas(width, height),
         context: null,
@@ -79,9 +71,10 @@ function patchCanvasSupport(window: DOMWindow): void {
     }
 
     return this._napiCanvasState.canvas.toDataURL(...args);
-  } as any;
+  };
 
-  if (!window.ImageData) window.ImageData = CanvasImageData;
+  if (!window.ImageData)
+    window.ImageData = CanvasImageData as unknown as typeof ImageData;
 
   if (!Reflect.has(globalThis, "ImageData")) {
     Object.defineProperty(globalThis, "ImageData", {
@@ -109,7 +102,7 @@ function ensureDomEnvironment(userAgent: string): DOMWindow {
 
   domWindow = dom.window;
 
-  const globalAssignments = {
+  const globalAssignments: Record<string, any> = {
     window: domWindow,
     document: domWindow.document,
     location: domWindow.location,
@@ -143,7 +136,6 @@ function ensureDomEnvironment(userAgent: string): DOMWindow {
   }
 
   patchCanvasSupport(domWindow);
-
   return domWindow;
 }
 
@@ -151,13 +143,14 @@ function resetBotGuardState(): void {
   if (botguardClient?.shutdown) {
     try {
       botguardClient.shutdown();
-    } finally {
-      // No actions needed
+    } catch {
+      // ignore
     }
   }
 
-  if (activeScriptId && domWindow?.document)
+  if (activeScriptId && domWindow?.document) {
     domWindow.document.getElementById(activeScriptId)?.remove();
+  }
 
   botguardClient = undefined;
   webPoMinter = undefined;
@@ -191,7 +184,7 @@ async function initializeBotGuard(
     if (!interpreterUrl)
       throw new Error("BotGuard challenge did not provide an interpreter URL.");
 
-    if (!domWindow.document.getElementById(interpreterUrl)) {
+    if (!domWindow!.document.getElementById(interpreterUrl)) {
       const interpreterResponse = await fetch(`https:${interpreterUrl}`, {
         headers: {
           "user-agent": userAgent,
@@ -199,18 +192,17 @@ async function initializeBotGuard(
       });
 
       const interpreterJavascript = await interpreterResponse.text();
-
       if (!interpreterJavascript)
         throw new Error("Failed to download BotGuard interpreter script.");
 
-      const script = domWindow.document.createElement("script");
+      const script = domWindow!.document.createElement("script");
       script.type = "text/javascript";
       script.id = interpreterUrl;
       script.textContent = interpreterJavascript;
-      domWindow.document.head.appendChild(script);
+      domWindow!.document.head.appendChild(script);
       activeScriptId = script.id;
 
-      const executeInterpreter = new domWindow.Function(interpreterJavascript);
+      const executeInterpreter = new domWindow!.Function(interpreterJavascript);
       executeInterpreter.call(domWindow);
     }
 
@@ -246,7 +238,6 @@ async function initializeBotGuard(
       { integrityToken },
       webPoSignalOutput
     );
-
     return webPoMinter;
   })()
     .catch((error) => {
@@ -268,15 +259,18 @@ function requireBinding(binding: string | undefined | null): string {
 
 export async function getWebPoMinter(
   innertube: Innertube,
-  options = {}
-): Promise<any> {
+  options: InitOptions = {}
+): Promise<{
+  generatePlaceholder: (binding: string | undefined | null) => string;
+  mint: (binding: string | undefined | null) => Promise<string>;
+}> {
   const minter = await initializeBotGuard(innertube, options);
 
   return {
-    generatePlaceholder(binding: string | undefined | null) {
+    generatePlaceholder(binding: string | undefined | null): string {
       return BG.PoToken.generateColdStartToken(requireBinding(binding));
     },
-    async mint(binding: string | undefined | null) {
+    async mint(binding: string | undefined | null): Promise<string> {
       return await minter.mintAsWebsafeString(requireBinding(binding));
     },
   };
