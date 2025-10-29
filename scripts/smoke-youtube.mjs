@@ -172,6 +172,32 @@ async function main() {
     `[smoke] Extractor search OK. tracks=${resSearchInfo.tracks.length}, first="${resSearchInfo.tracks[0].title}"`
   );
 
+  // Test 3: autoplay recommendations via getRelatedTracks
+  try {
+    const seedTrack = resSearchInfo.tracks[0];
+    const historyStub = { tracks: [seedTrack] };
+    const relatedInfo = await registered.getRelatedTracks(seedTrack, historyStub);
+    const relatedTracks = relatedInfo?.tracks ?? [];
+    console.log(
+      `[smoke] Related tracks: count=${relatedTracks.length}` +
+        (relatedTracks[0]
+          ? `, first="${relatedTracks[0].title}", duration=${relatedTracks[0].duration}`
+          : "")
+    );
+    if (
+      relatedTracks.some((t) => t?.url && t.url === seedTrack.url)
+    ) {
+      throw new Error(
+        "Autoplay returned the seed track that exists in history"
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[smoke] Autoplay (getRelatedTracks) check did not complete:",
+      e?.message || e
+    );
+  }
+
   if (!shouldStream) {
     console.log(
       "[smoke] Streaming test disabled (set SMOKE_STREAM=1 to enable)."

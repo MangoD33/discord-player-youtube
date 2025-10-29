@@ -15,29 +15,141 @@ export type NormalizedItem = {
   raw?: any;
 };
 
+function toStringSafe(t: any): string | undefined {
+  try {
+    if (typeof t === "string") return t;
+    if (typeof t?.toString === "function") return String(t.toString());
+    if (typeof t?.text === "string") return t.text;
+  } catch {}
+  return undefined;
+}
+
+function normalizeCandidateToItem(candidate: any): NormalizedItem | null {
+  try {
+    if (!candidate || typeof candidate !== "object") return null;
+
+    // If it's already a normalized item, return as-is
+    if (
+      typeof candidate.url === "string" &&
+      typeof candidate.title === "string" &&
+      typeof candidate.author === "string" &&
+      typeof candidate.durationMS === "number"
+    ) {
+      return candidate as NormalizedItem;
+    }
+
+    const video_id =
+      candidate?.video_id || candidate?.id || candidate?.content_id || null;
+    if (typeof video_id !== "string") return null;
+
+    const title =
+      candidate?.title?.text ||
+      toStringSafe(candidate?.metadata?.title) ||
+      candidate?.title ||
+      "UNKNOWN TITLE";
+    const author = candidate?.author?.name || "UNKNOWN AUTHOR";
+    const thumb =
+      candidate?.best_thumbnail?.url ||
+      candidate?.thumbnails?.[0]?.url ||
+      candidate?.thumbnail?.[0]?.url ||
+      candidate?.content_image?.image?.[0]?.url ||
+      undefined;
+
+    // Duration: prefer numeric seconds; try to parse common timecode text or a11y label as fallback
+    let seconds = Number(candidate?.duration?.seconds ?? 0);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      const maybeTexts: (string | undefined)[] = [
+        toStringSafe(candidate?.duration?.text),
+        toStringSafe(candidate?.renderer_context?.accessibility_context?.label),
+      ];
+      for (const s of maybeTexts) {
+        if (!s) continue;
+        const m = s.match(/\b(\d{1,2}:)?\d{1,2}:\d{2}\b/);
+        if (m) {
+          const parts = m[0].split(":").map((n) => parseInt(n, 10));
+          if (parts.length === 3)
+            seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+          else if (parts.length === 2) seconds = parts[0] * 60 + parts[1];
+          break;
+        }
+        // Fallback: parse english duration phrases like "1 hour, 5 minutes, 29 seconds" - TEMPORARY UNTIL WE FIND A ALTERNATIVE - NOT ACCURATE DURATION
+        if (!Number.isFinite(seconds) || seconds <= 0) {
+          const parsed = parseEnglishDurationLabel(s);
+          if (parsed > 0) {
+            seconds = parsed;
+            break;
+          }
+        }
+      }
+      if (!Number.isFinite(seconds)) seconds = 0;
+    }
+
+    return {
+      source: "youtube",
+      url: `https://www.youtube.com/watch?v=${video_id}`,
+      title: String(title),
+      author: String(author),
+      durationMS: Math.max(0, Math.floor(seconds) * 1000),
+      thumbnail: typeof thumb === "string" ? thumb : undefined,
+      isLive: !!candidate?.is_live,
+      raw: candidate,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseEnglishDurationLabel(input: string): number {
+  try {
+    const s = String(input || "").toLowerCase();
+    let total = 0;
+    const re =
+      /(\d+)\s*(hour|hours|hr|hrs|minute|minutes|min|mins|second|seconds|sec|secs)\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(s))) {
+      const value = parseInt(match[1], 10);
+      const unit = match[2];
+      if (!Number.isFinite(value)) continue;
+      if (unit.startsWith("hour") || unit.startsWith("hr"))
+        total += value * 3600;
+      else if (unit.startsWith("min")) total += value * 60;
+      else if (unit.startsWith("sec")) total += value;
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
 export function buildTrack(
   player: import("discord-player").Player,
-  item: NormalizedItem,
+  item: NormalizedItem | any,
   ctx: ExtractorSearchContext,
   playlist?: Playlist | null,
   extractor?: any | null
 ): Track {
-  const durationTC = Util.buildTimeCode(Util.parseMS(item.durationMS || 0));
+  const normalized = normalizeCandidateToItem(item) ?? (item as NormalizedItem);
+  const durationTC = Util.buildTimeCode(
+    Util.parseMS(normalized.durationMS || 0)
+  );
   const t = new Track(player, {
-    title: item.title,
-    description: `${item.title} by ${item.author}`,
-    author: item.author,
-    url: item.url,
-    thumbnail: item.thumbnail,
+    title: normalized.title,
+    description: `${normalized.title} by ${normalized.author}`,
+    author: normalized.author,
+    url: normalized.url,
+    thumbnail: normalized.thumbnail,
     duration: durationTC,
-    views: item.views ?? 0,
+    views: normalized.views ?? 0,
     requestedBy: (ctx?.requestedBy as any) ?? undefined,
-    source: item.source as any,
+    source: (normalized.source as any) ?? ("youtube" as any),
     queryType: "youtubeVideo",
-    metadata: { source: item.raw, bridge: (item as any)?.raw?.bridge ?? null },
+    metadata: {
+      source: (normalized as any).raw ?? item,
+      bridge: (normalized as any)?.raw?.bridge ?? null,
+    },
     requestMetadata: async () => ({
-      source: item.raw,
-      bridge: (item as any)?.raw?.bridge ?? null,
+      source: (normalized as any).raw ?? item,
+      bridge: (normalized as any)?.raw?.bridge ?? null,
     }),
     playlist: playlist ?? undefined,
   });

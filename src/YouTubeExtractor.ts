@@ -308,52 +308,95 @@ export class YoutubeExtractor extends BaseExtractor {
     history: GuildQueueHistory
   ): Promise<ExtractorInfo> {
     if (!this.innertube) throw new Error("Innertube not initialized");
-    let videoId = extractVideoId(track.url);
+
+    // Resolve seed video id from track url/raw
+    const seedUrl = track.url || (track.raw as any)?.id || "";
+    let videoId = extractVideoId(seedUrl);
     if (!videoId)
       throw new Error(
         "[YoutubeExtractor Error] Error at getRelatedTracks(): Unable to extract videoId."
       );
 
-    const info = await this.innertube.getInfo(videoId);
-    const next = info.watch_next_feed;
+    const info: any = await this.innertube.getInfo(videoId);
 
-    const recommended = (next as unknown as YTNodes.CompactVideo[]).filter(
-      (v: any) =>
-        v?.type === "CompactVideo" &&
+    const collectFromFeed = (feed: any): any[] => {
+      try {
+        if (Array.isArray(feed)) return feed;
+        if (Array.isArray(feed?.contents)) return feed.contents;
+      } catch {}
+      return [];
+    };
+
+    // First pass from initial feed
+    let feedItems: any[] = collectFromFeed(info.watch_next_feed);
+
+    // If we didn't get much, try to fetch one continuation page
+    try {
+      if ((info as any).wn_has_continuation && feedItems.length < 5) {
+        await info.getWatchNextContinuation();
+        feedItems = feedItems.concat(collectFromFeed(info.watch_next_feed));
+      }
+    } catch {}
+
+    let recommended: YTNodes.LockupView[] = (
+      feedItems as unknown as YTNodes.LockupView[]
+    ).filter(
+      (v) =>
+        v?.content_type === "VIDEO" &&
         !history.tracks.some(
-          (x) => x.url === `https://www.youtube.com/watch?v=${v.video_id}`
+          (x) => x.url === `https://youtube.com/watch?v=${v?.content_id}`
         )
     );
 
-    if (!recommended) {
+    // Fallback: if nothing from watch next, try a lightweight search using title/author
+    if (!recommended || recommended.length === 0) {
+      try {
+        const title = track?.title ?? "";
+        const author =
+          (track as any)?.author ?? (track as any)?.raw?.author ?? "";
+        const query =
+          [author, title].filter(Boolean).join(" - ") || title || author;
+        const results = await searchYoutubeByQueryName(this.innertube, query);
+        const fromSearch = (results?.results ?? []).filter(
+          (v: any): v is YTNodes.Video =>
+            v?.type === "Video" &&
+            !!v?.video_id &&
+            !history.tracks.some(
+              (x) => x.url === `https://www.youtube.com/watch?v=${v.video_id}`
+            )
+        );
+        recommended = fromSearch as any;
+      } catch {}
+    }
+
+    if (!recommended || recommended.length === 0) {
       this.context.player.debug("Unable to fetch recommendations.");
       return this.createResponse(null, []);
     }
 
-    const trackConstruct = recommended.map((v) => {
-      const duration = Util.buildTimeCode(
-        Util.parseMS(v.duration.seconds * 1000)
+    // Build tracks from mixed shapes using shared buildTrack
+    const seenIds = new Set<string>();
+    const trackConstruct: Track[] = [];
+    for (const v of recommended) {
+      const id =
+        (v as any)?.video_id || (v as any)?.id || (v as any)?.content_id;
+      if (!id || seenIds.has(id)) continue;
+      seenIds.add(id);
+      trackConstruct.push(
+        buildTrack(
+          this.context.player,
+          v,
+          { requestedBy: track.requestedBy } as any,
+          null,
+          this
+        )
       );
-      const raw = {
-        live: v.is_live,
-        duration_ms: v.duration.seconds * 1000,
-        duration,
-      };
-
-      return new Track(this.context.player, {
-        title: v.title?.text ?? "UNKNOWN TITLE",
-        thumbnail: v.best_thumbnail?.url ?? v.thumbnails?.[0]?.url,
-        author: v.author?.name ?? "UNKNOWN AUTHOR",
-        requestedBy: track.requestedBy ?? undefined,
-        url: `https://www.youtube.com/watch?v=${v.video_id}`,
-        source: "youtube",
-        duration,
-        raw,
-      });
-    });
+    }
 
     return this.createResponse(null, trackConstruct);
   }
+
+  // (Normalization handled in utils.buildTrack)
 
   // Bridge support: allow other extractors to request a YouTube-backed stream
   async bridge(
