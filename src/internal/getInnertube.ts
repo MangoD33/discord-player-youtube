@@ -17,10 +17,22 @@ dotenv.config();
 
 let innertubeInstance: Innertube | undefined;
 
-export async function getInnertube(): Promise<Innertube> {
+export async function getInnertube(
+  cookieFromOptions?: string | null,
+  innertubeConfigRaw?: Types.InnerTubeConfig | null
+): Promise<Innertube> {
   if (innertubeInstance) return innertubeInstance;
 
-  const rawCookie = (process.env.YOUTUBE_COOKIE ?? "").trim();
+  // Merge base config with provided raw config (type-safe via Types.InnerTubeConfig)
+  const baseConfig: Types.InnerTubeConfig = {
+    cache: new UniversalCache(false),
+    ...(innertubeConfigRaw ?? {}),
+  };
+
+  // Resolve cookie precedence: explicit option > config cookie > env var
+  const rawCookie = String(
+    (cookieFromOptions ?? baseConfig.cookie ?? process.env.YOUTUBE_COOKIE ?? "")
+  ).trim();
   const hasCookie = rawCookie.length > 0;
 
   // Helper to validate if the provided cookie actually works for auth-only endpoints
@@ -37,7 +49,7 @@ export async function getInnertube(): Promise<Innertube> {
   if (hasCookie) {
     try {
       const withCookie = await Innertube.create({
-        cache: new UniversalCache(false),
+        ...baseConfig,
         cookie: rawCookie,
       });
 
@@ -62,9 +74,8 @@ export async function getInnertube(): Promise<Innertube> {
     );
   }
 
-  // Fallback: no cookie or invalid cookie
-  innertubeInstance = await Innertube.create({
-    cache: new UniversalCache(false),
-  });
+  // Fallback: no cookie or invalid cookie — use config minus cookie
+  const { cookie: _ignoredCookie, ...configWithoutCookie } = baseConfig as any;
+  innertubeInstance = await Innertube.create(configWithoutCookie as Types.InnerTubeConfig);
   return innertubeInstance;
 }

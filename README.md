@@ -24,35 +24,38 @@ const client = new Client({
 });
 const player = new Player(client);
 
-await player.extractors.register(YoutubeExtractor);
+await player.extractors.register(YoutubeExtractor, {
+  cookie: process.env.YOUTUBE_COOKIE, // Recommended
+  filterAutoplayTracks: true, // enabled by default
+  disableYTJSLog: true, // silence youtubei.js logs
+});
 
 // use player as usual
 ```
 
-## Configuration
+## Configuration - Optional
 
 This extractor works out of the box, but for best stability, you should provide a YouTube cookie.
 
-- `YOUTUBE_COOKIE` (optional, recommended): A full YouTube cookie string from your browser session. This improves request stability and may help with age‑restricted or region‑locked content.
+| Option                 | Type    | Default              | Description                                                                                                                 |
+| ---------------------- | ------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `cookie`               | string  | `env.YOUTUBE_COOKIE` | YouTube cookie string. Improves stability and may help with age‑restricted tracks.                                          |
+| `filterAutoplayTracks` | boolean | `true`               | Autoplay recommendations exclude tracks already present in the queue history. Set to `false` to allow repeats from history. |
 
 #### Getting your YouTube cookie
 
-For a step-by-step guide on how to obtain a valid YouTube cookie from your browser session, follow the [official youtubei.js documentation](https://ytjs.dev/guide/authentication.html#cookies).
+> For a step-by-step guide on how to obtain a valid YouTube cookie from your browser session, follow the [official youtubei.js documentation](https://ytjs.dev/guide/authentication.html#cookies).
 
-#### Where to set it:
+##### Notes and tips:
 
-1. In an `.env` file (dotenv is automatically loaded):
-
-```
-YOUTUBE_COOKIE=VISITOR_INFO1_LIVE=...; PREF=...; YSC=...; __Secure-...=...;
-```
-
-2. Or as an environment variable in your process manager (PM2, Docker, systemd, etc.).
-
-#### Notes and tips:
-
-- Use a throwaway YouTube account. Do not share personal cookies.
+- Use a throwaway YouTube account. Do not share your personal cookies.
 - If you rotate or remove the cookie, restart your bot process to pick up changes.
+
+### Advanced Configuration
+
+- `innertubeConfigRaw` (optional): Pass-through to Innertube.create() (type: [InnerTubeConfig](https://ytjs.dev/api/type-aliases/SessionOptions.html)).
+- `sabrPlaybackOptions` (optional): Type-safe pass-through to SABR playback configuration (type: [SabrPlaybackOptions](https://ytjs.dev/googlevideo/api/exports/sabr-stream/interfaces/SabrPlaybackOptions.html)).
+  > Default: medium audio quality, audio-only, prefer H264.
 
 ## License
 
@@ -60,4 +63,4 @@ Licensed under CC‑BY‑4.0. See `LICENSE` for details.
 
 ## Acknowledgements
 
-Big shout-out to [iTsMaaT](https://github.com/iTsMaaT), [Retro](https://github.com/retrouser955) and [brrrbot](https://github.com/brrrbot) — this code is a mix derived from their work and guidance.
+Big shout-out to [iTsMaaT](https://github.com/iTsMaaT), [Retro](https://github.com/retrouser955) and [brrrbot](https://github.com/brrrbot) — this extractor would not have been possible without their valuable contribution.

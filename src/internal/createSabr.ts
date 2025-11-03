@@ -39,7 +39,8 @@ function toNodeReadable(stream: any): Readable | null {
 }
 
 export async function createSabrStream(
-  videoId: string
+  videoId: string,
+  sabrOptions?: SabrPlaybackOptions
 ): Promise<Readable | null> {
   const innertube = await getInnertube();
   let accountInfo = null;
@@ -139,7 +140,8 @@ export async function createSabrStream(
     }
   );
 
-  const { audioStream } = await serverAbrStream.start(DEFAULT_OPTIONS);
+  const playbackOptions: SabrPlaybackOptions = sabrOptions ?? DEFAULT_OPTIONS;
+  const { audioStream } = await serverAbrStream.start(playbackOptions);
   const nodeStream = toNodeReadable(audioStream);
 
   return nodeStream;

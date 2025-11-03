@@ -6,9 +6,6 @@ import "dotenv/config";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { Log } from "youtubei.js";
-Log.setLevel(Log.Level.NONE);
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const distDir = resolve(__dirname, "..", "dist");
@@ -72,8 +69,12 @@ async function main() {
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
   });
+
+  //@ts-check
   const player = new Player(client);
-  await player.extractors.register(YoutubeExtractor);
+  await player.extractors.register(YoutubeExtractor, {
+    cookie: process.env.YOUTUBE_COOKIE,
+  });
   const registeredId = YoutubeExtractor.identifier;
   console.log(
     `[smoke] Registered extractor: ${registeredId}. Total extractors: ${player.extractors.size}`
@@ -176,7 +177,10 @@ async function main() {
   try {
     const seedTrack = resSearchInfo.tracks[0];
     const historyStub = { tracks: [seedTrack] };
-    const relatedInfo = await registered.getRelatedTracks(seedTrack, historyStub);
+    const relatedInfo = await registered.getRelatedTracks(
+      seedTrack,
+      historyStub
+    );
     const relatedTracks = relatedInfo?.tracks ?? [];
     console.log(
       `[smoke] Related tracks: count=${relatedTracks.length}` +
@@ -184,9 +188,7 @@ async function main() {
           ? `, first="${relatedTracks[0].title}", duration=${relatedTracks[0].duration}`
           : "")
     );
-    if (
-      relatedTracks.some((t) => t?.url && t.url === seedTrack.url)
-    ) {
+    if (relatedTracks.some((t) => t?.url && t.url === seedTrack.url)) {
       throw new Error(
         "Autoplay returned the seed track that exists in history"
       );

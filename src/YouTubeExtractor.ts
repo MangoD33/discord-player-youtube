@@ -3,7 +3,6 @@ import {
   GuildQueueHistory,
   Playlist,
   Track,
-  Util,
 } from "discord-player";
 import type {
   ExtractorInfo,
@@ -11,7 +10,8 @@ import type {
   ExtractorStreamable,
   SearchQueryType,
 } from "discord-player";
-import { Innertube, YTNodes, YT } from "youtubei.js/agnostic";
+import { Innertube, YTNodes } from "youtubei.js/agnostic";
+import type { Types } from "youtubei.js/agnostic";
 import { getInnertube } from "./internal/getInnertube.js";
 import {
   buildTrack,
@@ -24,22 +24,33 @@ import {
   type NormalizedItem,
 } from "./internal/utils.js";
 import { createSabrStream } from "./internal/createSabr.js";
+import type { SabrPlaybackOptions } from "googlevideo/sabr-stream";
 
-export class YoutubeExtractor extends BaseExtractor {
+export interface ExtractorInitOptions {
+  cookie?: string; // YouTube Cookie
+  priority?: number; // Extractor priority
+  filterAutoplayTracks?: boolean; // Remove tracks if already in history
+  innertubeConfigRaw?: Types.InnerTubeConfig; // forwarded to Innertube.create()
+  sabrPlaybackOptions?: SabrPlaybackOptions; // Advanced: SABR playback tuning
+}
+
+export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
   public static identifier: string = "com.mangod33.discord-player-youtube";
+  public priority: number = 2;
 
   private innertube: Innertube | null = null;
   private _stream: Function | null = null;
 
   async activate(): Promise<void> {
     this.protocols = ["youtube", "yt"];
-    this.innertube = await getInnertube();
-
-    const fn = (this.options as any).createStream;
-    if (typeof fn === "function")
-      this._stream = (q: any) => {
-        return fn(this, q);
-      };
+    const options = (this.options || {}) as ExtractorInitOptions;
+    this.innertube = await getInnertube(
+      options.cookie,
+      options.innertubeConfigRaw
+    );
+    if (options.priority) {
+      this.priority = options.priority;
+    }
   }
 
   async deactivate(): Promise<void> {
@@ -61,7 +72,7 @@ export class YoutubeExtractor extends BaseExtractor {
   ): Promise<ExtractorInfo> {
     if (!checkIsUrl(query)) {
       try {
-        if (!this.innertube) throw new Error("Innertube not initialized");
+        if (!this.innertube) this.innertube = await getInnertube();
 
         const results = await searchYoutubeByQueryName(this.innertube, query);
         if (!results) return this.createResponse(null, []);
@@ -293,7 +304,10 @@ export class YoutubeExtractor extends BaseExtractor {
         if (custom) return custom as ExtractorStreamable;
       }
 
-      const nodeStream = await createSabrStream(videoId);
+      const nodeStream = await createSabrStream(
+        videoId,
+        (this.options as ExtractorInitOptions)?.sabrPlaybackOptions
+      );
       if (!nodeStream) throw new Error("Failed to create stream");
 
       return nodeStream as ExtractorStreamable;
@@ -308,6 +322,7 @@ export class YoutubeExtractor extends BaseExtractor {
     history: GuildQueueHistory
   ): Promise<ExtractorInfo> {
     if (!this.innertube) throw new Error("Innertube not initialized");
+    const filterFromHistory = this.options.filterAutoplayTracks !== false;
 
     // Resolve seed video id from track url/raw
     const seedUrl = track.url || (track.raw as any)?.id || "";
@@ -343,9 +358,10 @@ export class YoutubeExtractor extends BaseExtractor {
     ).filter(
       (v) =>
         v?.content_type === "VIDEO" &&
-        !history.tracks.some(
-          (x) => x.url === `https://youtube.com/watch?v=${v?.content_id}`
-        )
+        (!filterFromHistory ||
+          !history.tracks.some(
+            (x) => x.url === `https://youtube.com/watch?v=${v?.content_id}`
+          ))
     );
 
     // Fallback: if nothing from watch next, try a lightweight search using title/author
@@ -361,9 +377,10 @@ export class YoutubeExtractor extends BaseExtractor {
           (v: any): v is YTNodes.Video =>
             v?.type === "Video" &&
             !!v?.video_id &&
-            !history.tracks.some(
-              (x) => x.url === `https://www.youtube.com/watch?v=${v.video_id}`
-            )
+            (!filterFromHistory ||
+              !history.tracks.some(
+                (x) => x.url === `https://www.youtube.com/watch?v=${v.video_id}`
+              ))
         );
         recommended = fromSearch as any;
       } catch {}
@@ -466,7 +483,10 @@ export class YoutubeExtractor extends BaseExtractor {
 
       if (!topVideoId) return null;
 
-      const nodeStream = await createSabrStream(topVideoId);
+      const nodeStream = await createSabrStream(
+        topVideoId,
+        (this.options as ExtractorInitOptions)?.sabrPlaybackOptions
+      );
       return nodeStream ?? null;
     } catch (error) {
       console.error(`[YouTubeExtractor] Bridge error: ${error}`);
