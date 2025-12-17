@@ -36,7 +36,7 @@ export interface ExtractorInitOptions {
 
 export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
   public static identifier: string = "com.mangod33.discord-player-youtube";
-  public priority: number = 2;
+  public priority: number = this.options.priority ?? 1;
 
   private innertube: Innertube | null = null;
   private _stream: Function | null = null;
