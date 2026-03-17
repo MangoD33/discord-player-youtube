@@ -10,7 +10,7 @@ npm install discord-player-youtube
 
 Requirements:
 
-- Node.js 18+ (built‑in `fetch`, WHATWG streams, and ESM)
+- Node.js 18+ (built-in `fetch`, WHATWG streams, and ESM)
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ const client = new Client({
 const player = new Player(client);
 
 await player.extractors.register(YoutubeExtractor, {
-  cookie: process.env.YOUTUBE_COOKIE, // Recommended
+  cookie: process.env.YOUTUBE_COOKIE, // Required for streaming
   filterAutoplayTracks: true, // enabled by default
   disableYTJSLog: true, // silence youtubei.js logs
 });
@@ -33,13 +33,13 @@ await player.extractors.register(YoutubeExtractor, {
 // use player as usual
 ```
 
-## Configuration - Optional
+## Configuration
 
-This extractor works out of the box, but for best stability, you should provide a YouTube cookie.
+A YouTube cookie is required for streaming to work. Pass it through the `cookie` option or `YOUTUBE_COOKIE` environment variable.
 
 | Option                 | Type    | Default              | Description                                                                                                                 |
 | ---------------------- | ------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `cookie`               | string  | `env.YOUTUBE_COOKIE` | YouTube cookie string. Improves stability and may help with age‑restricted tracks.                                          |
+| `cookie`               | string  | `env.YOUTUBE_COOKIE` | Required YouTube cookie string for streaming. Also helps with age-restricted tracks.                                        |
 | `filterAutoplayTracks` | boolean | `true`               | Autoplay recommendations exclude tracks already present in the queue history. Set to `false` to allow repeats from history. |
 
 #### Getting your YouTube cookie
@@ -59,8 +59,8 @@ This extractor works out of the box, but for best stability, you should provide 
 
 ## License
 
-Licensed under CC‑BY‑4.0. See `LICENSE` for details.
+Licensed under CC-BY-4.0. See `LICENSE` for details.
 
 ## Acknowledgements
 
-Big shout-out to [iTsMaaT](https://github.com/iTsMaaT), [Retro](https://github.com/retrouser955) and [brrrbot](https://github.com/brrrbot) — this extractor would not have been possible without their valuable contribution.
+Big shout-out to [iTsMaaT](https://github.com/iTsMaaT), [Retro](https://github.com/retrouser955) and [brrrbot](https://github.com/brrrbot) - this extractor would not have been possible without their valuable contribution.

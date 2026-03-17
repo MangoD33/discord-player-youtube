@@ -96,7 +96,9 @@ function ensureDomEnvironment(userAgent: string): DOMWindow {
     {
       url: "https://www.youtube.com/",
       referrer: "https://www.youtube.com/",
-      userAgent,
+      resources: {
+        userAgent,
+      },
     }
   );
 
