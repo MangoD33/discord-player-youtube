@@ -63,7 +63,6 @@ export async function createSabrStream(
   });
   const playerResponse = await watchEndpoint.call(innertube.actions, {
     playbackContext: {
-      adPlaybackContext: { pyv: true },
       contentPlaybackContext: {
         vis: 0,
         splay: false,
