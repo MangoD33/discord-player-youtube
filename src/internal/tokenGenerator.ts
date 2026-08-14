@@ -1,4 +1,6 @@
-import { BG, GOOG_API_KEY, USER_AGENT, buildURL } from "bgutils-js";
+import { BotGuardClient } from "bgutils-js/botguard";
+import { WebPoMinter, createColdStartToken } from "bgutils-js/webpo";
+import { GOOG_API_KEY, USER_AGENT, buildURL } from "bgutils-js/utils";
 import { JSDOM, DOMWindow } from "jsdom";
 import { createCanvas, ImageData as CanvasImageData } from "@napi-rs/canvas";
 import Innertube from "youtubei.js/agnostic";
@@ -6,9 +8,9 @@ import Innertube from "youtubei.js/agnostic";
 const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
 
 let domWindow: DOMWindow | undefined;
-let initializationPromise: Promise<BG.WebPoMinter> | null = null;
-let botguardClient: BG.BotGuardClient | undefined;
-let webPoMinter: BG.WebPoMinter | undefined;
+let initializationPromise: Promise<WebPoMinter> | null = null;
+let botguardClient: BotGuardClient | undefined;
+let webPoMinter: WebPoMinter | undefined;
 let activeScriptId: string | null = null;
 let CanvasPatched = false;
 
@@ -163,7 +165,7 @@ function resetBotGuardState(): void {
 async function initializeBotGuard(
   innertube: Innertube,
   { forceRefresh }: InitOptions = {}
-): Promise<BG.WebPoMinter> {
+): Promise<WebPoMinter> {
   if (forceRefresh) resetBotGuardState();
   if (webPoMinter) return webPoMinter;
   if (initializationPromise) return await initializationPromise;
@@ -171,7 +173,7 @@ async function initializeBotGuard(
   const userAgent = innertube.session.context.client.userAgent || USER_AGENT;
   ensureDomEnvironment(userAgent);
 
-  initializationPromise = (async (): Promise<BG.WebPoMinter> => {
+  initializationPromise = (async (): Promise<WebPoMinter> => {
     const challengeResponse = await innertube.getAttestationChallenge(
       "ENGAGEMENT_TYPE_UNBOUND"
     );
@@ -186,8 +188,14 @@ async function initializeBotGuard(
     if (!interpreterUrl)
       throw new Error("BotGuard challenge did not provide an interpreter URL.");
 
+    const normalizedUrl = interpreterUrl.startsWith("http")
+      ? interpreterUrl
+      : interpreterUrl.startsWith("//")
+      ? `https:${interpreterUrl}`
+      : `https://${interpreterUrl}`;
+
     if (!domWindow!.document.getElementById(interpreterUrl)) {
-      const interpreterResponse = await fetch(`https:${interpreterUrl}`, {
+      const interpreterResponse = await fetch(normalizedUrl, {
         headers: {
           "user-agent": userAgent,
         },
@@ -208,10 +216,10 @@ async function initializeBotGuard(
       executeInterpreter.call(domWindow);
     }
 
-    botguardClient = await BG.BotGuardClient.create({
+    botguardClient = await BotGuardClient.create({
       program: challenge.program,
       globalName: challenge.global_name,
-      globalObj: globalThis,
+      globalObject: globalThis,
     });
 
     const webPoSignalOutput: any[] = [];
@@ -236,7 +244,7 @@ async function initializeBotGuard(
     if (typeof integrityToken !== "string")
       throw new Error("BotGuard integrity token generation failed.");
 
-    webPoMinter = await BG.WebPoMinter.create(
+    webPoMinter = await WebPoMinter.create(
       { integrityToken },
       webPoSignalOutput
     );
@@ -270,7 +278,7 @@ export async function getWebPoMinter(
 
   return {
     generatePlaceholder(binding: string | undefined | null): string {
-      return BG.PoToken.generateColdStartToken(requireBinding(binding));
+      return createColdStartToken(requireBinding(binding));
     },
     async mint(binding: string | undefined | null): Promise<string> {
       return await minter.mintAsWebsafeString(requireBinding(binding));

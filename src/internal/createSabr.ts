@@ -7,8 +7,11 @@ import { buildSabrFormat, EnabledTrackTypes } from "googlevideo/utils";
 import { Readable } from "node:stream";
 import { getInnertube } from "./getInnertube.js";
 import { getWebPoMinter, invalidateWebPoMinter } from "./tokenGenerator.js";
+import { patchSabrStreamThrottleBug } from "./patchSabrStream.js";
 import { Constants, YTNodes } from "youtubei.js/agnostic";
 import { SabrFormat } from "googlevideo/shared-types";
+
+patchSabrStreamThrottleBug();
 
 const DEFAULT_OPTIONS: SabrPlaybackOptions = {
   audioQuality: "MEDIUM",
@@ -43,20 +46,19 @@ export async function createSabrStream(
   sabrOptions?: SabrPlaybackOptions
 ): Promise<Readable | null> {
   const innertube = await getInnertube();
-  let accountInfo = null;
+  let contentPoToken: string;
 
   try {
-    accountInfo = await innertube.account.getInfo();
+    const minter = await getWebPoMinter(innertube);
+    contentPoToken = await minter.mint(videoId);
   } catch (error) {
-    throw error;
+    console.warn(
+      `[SabrStream] Initial WebPoMinter failed: ${error}. Retrying with fresh BotGuard...`
+    );
+    invalidateWebPoMinter();
+    const minter = await getWebPoMinter(innertube, { forceRefresh: true });
+    contentPoToken = await minter.mint(videoId);
   }
-  const dataSyncId =
-    accountInfo?.contents?.contents[0]?.endpoint?.payload?.supportedTokens?.[2]
-      ?.datasyncIdToken?.datasyncIdToken ??
-    innertube.session.context.client.visitorData;
-  const minter = await getWebPoMinter(innertube);
-  const contentPoToken = await minter.mint(videoId);
-  const poToken = await minter.mint(dataSyncId);
 
   const watchEndpoint = new YTNodes.NavigationEndpoint({
     watchEndpoint: { videoId },
@@ -92,10 +94,11 @@ export async function createSabrStream(
     playerResponse.streaming_data?.adaptive_formats.map(buildSabrFormat) || [];
 
   const SabrStreamConfig: SabrStreamConfig = {
+    fetch: innertube.session.http.fetch_function,
     formats: sabrFormats,
     serverAbrStreamingUrl,
     videoPlaybackUstreamerConfig,
-    poToken: poToken,
+    poToken: contentPoToken,
     clientInfo: {
       clientName: parseInt(
         (Constants.CLIENT_NAME_IDS as any)[
@@ -107,39 +110,66 @@ export async function createSabrStream(
   };
   const serverAbrStream = new SabrStream(SabrStreamConfig);
 
-  let protectionFailureCount = 0;
   let lastStatus: number | null = null;
+  let poTokenRotation: Promise<void> | null = null;
   serverAbrStream.on(
     "streamProtectionStatusUpdate",
     async (statusUpdate: any) => {
-      if (statusUpdate.status !== lastStatus) lastStatus = statusUpdate.status;
-      if (statusUpdate.status === 2) {
-        protectionFailureCount = Math.min(protectionFailureCount + 1, 10);
-
-        try {
-          const rotationMinter = await getWebPoMinter(innertube, {
-            forceRefresh: protectionFailureCount >= 3,
-          });
-          const placeholderToken = rotationMinter.generatePlaceholder(videoId);
-          serverAbrStream.setPoToken(placeholderToken);
-          const mintedPoToken = await rotationMinter.mint(videoId);
-          serverAbrStream.setPoToken(mintedPoToken);
-        } catch (error) {
-          if (protectionFailureCount === 1 || protectionFailureCount % 5 === 0)
-            console.error(`Failed to rotate PoToken: ${error}`);
-        }
-      } else if (statusUpdate.status === 3) {
-        console.error(
-          "Stream protection rejected token (SPS 3). Resetting Botguard."
+      if (statusUpdate.status !== lastStatus) {
+        lastStatus = statusUpdate.status;
+        console.debug(
+          `[SabrStream] Stream protection status: ${statusUpdate.status}`
         );
-        invalidateWebPoMinter();
-      } else {
-        protectionFailureCount = 0;
+      }
+      // SPS 2 ("attestation pending") is a non-fatal, often-repeated status
+      // that the server may resend on every response during normal
+      // throttling — it does not mean the current token was rejected, so
+      // rotating on it just spams BotGuard for no benefit. Only SPS 3
+      // ("attestation required") means the token was actually rejected and
+      // needs a fresh mint.
+      if (statusUpdate.status === 3) {
+        if (poTokenRotation) return;
+
+        poTokenRotation = (async () => {
+          try {
+            console.warn(
+              "[SabrStream] Token rejected by stream protection (SPS 3). Resetting Botguard and rotating token..."
+            );
+            invalidateWebPoMinter();
+
+            let rotationMinter = await getWebPoMinter(innertube, {
+              forceRefresh: true,
+            });
+
+            try {
+              const newToken = await rotationMinter.mint(videoId);
+              serverAbrStream.setPoToken(newToken);
+              console.debug("[SabrStream] PoToken refreshed (SPS 3).");
+            } catch {
+              invalidateWebPoMinter();
+              rotationMinter = await getWebPoMinter(innertube, {
+                forceRefresh: true,
+              });
+              const fallbackToken = await rotationMinter.mint(videoId);
+              serverAbrStream.setPoToken(fallbackToken);
+              console.debug(
+                "[SabrStream] PoToken refreshed after rebuilding Botguard."
+              );
+            }
+          } catch (error) {
+            console.error(`Failed to rotate PoToken: ${error}`);
+          } finally {
+            poTokenRotation = null;
+          }
+        })();
       }
     }
   );
 
-  const playbackOptions: SabrPlaybackOptions = sabrOptions ?? DEFAULT_OPTIONS;
+  const playbackOptions: SabrPlaybackOptions = {
+    ...DEFAULT_OPTIONS,
+    ...sabrOptions,
+  };
   const { audioStream } = await serverAbrStream.start(playbackOptions);
   const nodeStream = toNodeReadable(audioStream);
 
