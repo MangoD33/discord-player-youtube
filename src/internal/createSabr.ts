@@ -107,17 +107,10 @@ export async function createSabrStream(
   };
   const serverAbrStream = new SabrStream(SabrStreamConfig);
 
-  let lastStatus: number | null = null;
   let poTokenRotation: Promise<void> | null = null;
   serverAbrStream.on(
     "streamProtectionStatusUpdate",
     async (statusUpdate: any) => {
-      if (statusUpdate.status !== lastStatus) {
-        lastStatus = statusUpdate.status;
-        console.debug(
-          `[SabrStream] Stream protection status: ${statusUpdate.status}`
-        );
-      }
       // SPS 2 ("attestation pending") is a non-fatal, often-repeated status
       // that the server may resend on every response during normal
       // throttling — it does not mean the current token was rejected, so
