@@ -7,11 +7,8 @@ import { buildSabrFormat, EnabledTrackTypes } from "googlevideo/utils";
 import { Readable } from "node:stream";
 import { getInnertube } from "./getInnertube.js";
 import { getWebPoMinter, invalidateWebPoMinter } from "./tokenGenerator.js";
-import { patchSabrStreamThrottleBug } from "./patchSabrStream.js";
 import { Constants, YTNodes } from "youtubei.js/agnostic";
 import { SabrFormat } from "googlevideo/shared-types";
-
-patchSabrStreamThrottleBug();
 
 const DEFAULT_OPTIONS: SabrPlaybackOptions = {
   audioQuality: "MEDIUM",

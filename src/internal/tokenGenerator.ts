@@ -5,7 +5,10 @@ import { JSDOM, DOMWindow } from "jsdom";
 import { createCanvas, ImageData as CanvasImageData } from "@napi-rs/canvas";
 import Innertube from "youtubei.js/agnostic";
 
-const REQUEST_KEY = "O43z0dpjhgX20SCx4KAo";
+// Impersonates the YouTube TV app (Cobalt/Starboard) so the tv_config endpoint returns a
+// BotGuard challenge that isn't bound to yt.config_.EVENT_ID. See initializeBotGuard() below.
+const TV_USER_AGENT =
+  "Mozilla/5.0 (Linux arm64-v8a; Android 10) Cobalt/25.lts.30.1034958-gold (unlike Gecko) v8/8.8.278.17-jit gles Starboard/15, Sony_ATV_sdm845_13140765/52.1.C.0.268 (KDDI, SOV38) com.google.android.youtube.tv/5.30.301";
 
 let domWindow: DOMWindow | undefined;
 let initializationPromise: Promise<WebPoMinter> | null = null;
@@ -174,16 +177,34 @@ async function initializeBotGuard(
   ensureDomEnvironment(userAgent);
 
   initializationPromise = (async (): Promise<WebPoMinter> => {
-    const challengeResponse = await innertube.getAttestationChallenge(
-      "ENGAGEMENT_TYPE_UNBOUND"
+    // YouTube now binds the initial attestation challenge to yt.config_.EVENT_ID for WEB/MWEB
+    // sessions in an ongoing experiment, which rejects tokens minted from a disconnected
+    // innertube.getAttestationChallenge() call. The TV client's challenge isn't bound to
+    // EVENT_ID (yet), so we source the challenge from there instead. See:
+    // https://github.com/LuanRT/BgUtils/pull/44
+    const tvConfigResponse = await fetch(
+      "https://www.youtube.com/tv_config?action_get_config=true&client=lb4&theme=cl",
+      {
+        headers: {
+          accept: "*/*",
+          "user-agent": TV_USER_AGENT,
+        },
+        referrer: "https://www.youtube.com/tv",
+      }
     );
-    const challenge = challengeResponse?.bg_challenge;
+
+    const tvConfigText = await tvConfigResponse.text();
+    if (!tvConfigText.startsWith(")]}'"))
+      throw new Error("Invalid response from YouTube TV config endpoint.");
+
+    const tvConfigJson = JSON.parse(tvConfigText.slice(4));
+    const challenge = JSON.parse(tvConfigJson.challengeParams.R)?.bgChallenge;
 
     if (!challenge) throw new Error("Failed to retrieve BotGuard challenge.");
 
     const interpreterUrl =
-      challenge.interpreter_url
-        ?.private_do_not_access_or_else_trusted_resource_url_wrapped_value;
+      challenge.interpreterUrl
+        ?.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue;
 
     if (!interpreterUrl)
       throw new Error("BotGuard challenge did not provide an interpreter URL.");
@@ -218,7 +239,7 @@ async function initializeBotGuard(
 
     botguardClient = await BotGuardClient.create({
       program: challenge.program,
-      globalName: challenge.global_name,
+      globalName: challenge.globalName,
       globalObject: globalThis,
     });
 
@@ -235,17 +256,17 @@ async function initializeBotGuard(
         "x-user-agent": "grpc-web-javascript/0.1",
         "user-agent": userAgent,
       },
-      body: JSON.stringify([REQUEST_KEY, botguardSnapshot]),
+      body: JSON.stringify([tvConfigJson.challengeRequestKey, botguardSnapshot]),
     });
 
-    const integrityPayload = await integrityResponse.json();
-    const integrityToken = integrityPayload?.[0];
+    const [integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken] =
+      await integrityResponse.json();
 
     if (typeof integrityToken !== "string")
       throw new Error("BotGuard integrity token generation failed.");
 
     webPoMinter = await WebPoMinter.create(
-      { integrityToken },
+      { integrityToken, estimatedTtlSecs, mintRefreshThreshold, websafeFallbackToken },
       webPoSignalOutput
     );
     return webPoMinter;
