@@ -23,15 +23,60 @@ import {
   checkIsUrl,
   type NormalizedItem,
 } from "./internal/utils.js";
-import { createSabrStream } from "./internal/createSabr.js";
-import type { SabrPlaybackOptions } from "googlevideo/sabr-stream";
+import { createSabrStream } from "./internal/sabr/createSabr.js";
+import { createDirectInnertubeStream } from "./internal/directInnertube/createDirectInnertubeStream.js";
+
+export type StreamResolver = "direct-innertube" | "sabr";
+
+const DEFAULT_STREAM_RESOLVER_ORDER: StreamResolver[] = [
+  "direct-innertube",
+  "sabr",
+];
+
+const VARIANT_PENALTIES: Record<string, number> = {
+  "8d": 700,
+  slowed_reverb: 600,
+  nightcore: 600,
+  lofi: 500,
+  instrumental: 500,
+  remix: 400,
+  cover: 400,
+  live: 300,
+  acoustic: 300,
+  extended: 200,
+};
+
+function normalizeMatchText(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectVariants(value: string): Set<string> {
+  const variants = new Set<string>();
+  if (/\b(8d|16d|spatial\s+audio?|binaural|360|surround)\b/.test(value)) variants.add("8d");
+  if (/\b(slowed|reverb)\b/.test(value)) variants.add("slowed_reverb");
+  if (/\b(nightcore|sped\s?up)\b/.test(value)) variants.add("nightcore");
+  if (/\blo\s?fi\b/.test(value)) variants.add("lofi");
+  if (/\b(instrumental|karaoke|no\s+vo[ck]als?|backing\s+track)\b/.test(value)) variants.add("instrumental");
+  if (/\b(remix|mashup|bootleg|flip|vip\s+mix|reedit)\b/.test(value)) variants.add("remix");
+  if (/\b(live\b|in\s+concert|live\s+at|live\s+from)\b/.test(value)) variants.add("live");
+  if (/\b(acoustic|unplugged)\b/.test(value)) variants.add("acoustic");
+  if (/\bcover\b/.test(value)) variants.add("cover");
+  if (/\b(extended\s+(mix|version)|full\s+version)\b/.test(value)) variants.add("extended");
+  return variants;
+}
 
 export interface ExtractorInitOptions {
   cookie?: string; // YouTube Cookie
   priority?: number; // Extractor priority
   filterAutoplayTracks?: boolean; // Remove tracks if already in history
   innertubeConfigRaw?: Types.InnerTubeConfig; // forwarded to Innertube.create()
-  sabrPlaybackOptions?: SabrPlaybackOptions; // Advanced: SABR playback tuning
+  streamResolverOrder?: StreamResolver[]; // Resolver priority, first successful resolver wins
+  disableDirectInnertube?: boolean; // Skip the direct InnerTube resolver
+  disableSabr?: boolean; // Skip the SABR resolver
 }
 
 export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
@@ -44,6 +89,7 @@ export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
   async activate(): Promise<void> {
     this.protocols = ["youtube", "yt"];
     const options = (this.options || {}) as ExtractorInitOptions;
+    this.getEnabledStreamResolvers();
     this.innertube = await getInnertube(
       options.cookie,
       options.innertubeConfigRaw
@@ -293,28 +339,146 @@ export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
 
   async stream(track: Track): Promise<ExtractorStreamable> {
     try {
-      if (!this.innertube) throw new Error("Innertube not initialized.");
-
-      const videoId = extractVideoId(track.url || (track.raw as any)?.id || "");
-      if (!videoId) throw new Error("Unable to extract videoId.");
-
       // Allow custom stream strategy when provided via options
       if (this._stream) {
         const custom = await this._stream(track);
         if (custom) return custom as ExtractorStreamable;
       }
 
-      const nodeStream = await createSabrStream(
-        videoId,
-        (this.options as ExtractorInitOptions)?.sabrPlaybackOptions
-      );
-      if (!nodeStream) throw new Error("Failed to create stream");
-
-      return nodeStream as ExtractorStreamable;
+      const options = this.options as ExtractorInitOptions;
+      const videoId = extractVideoId(track.url || (track.raw as any)?.id || "");
+      if (!videoId) throw new Error("Unable to extract videoId.");
+      return await this.resolveStream(track, videoId, options);
     } catch (error) {
       console.error(`[YouTubeExtractor] Stream error: ${error}`);
       throw error;
     }
+  }
+
+  private getEnabledStreamResolvers(): StreamResolver[] {
+    const options = (this.options || {}) as ExtractorInitOptions;
+    const requestedOrder = options.streamResolverOrder ?? DEFAULT_STREAM_RESOLVER_ORDER;
+    const validResolvers = new Set<StreamResolver>(DEFAULT_STREAM_RESOLVER_ORDER);
+
+    if (!Array.isArray(requestedOrder)) {
+      throw new TypeError("streamResolverOrder must be an array of resolver names.");
+    }
+    if (requestedOrder.some((resolver) => !validResolvers.has(resolver))) {
+      throw new TypeError(
+        "streamResolverOrder may only contain: direct-innertube, sabr."
+      );
+    }
+    if (new Set(requestedOrder).size !== requestedOrder.length) {
+      throw new TypeError("streamResolverOrder cannot contain duplicate resolvers.");
+    }
+
+    const enabled = requestedOrder.filter((resolver) => {
+      return resolver === "direct-innertube"
+        ? !options.disableDirectInnertube
+        : !options.disableSabr;
+    });
+
+    if (!enabled.length) {
+      throw new Error(
+        "No stream resolvers are enabled. Enable at least one of direct-innertube or sabr."
+      );
+    }
+
+    return enabled;
+  }
+
+  private async resolveStream(
+    track: Track,
+    videoId: string,
+    options: ExtractorInitOptions
+  ): Promise<ExtractorStreamable> {
+    const resolvers = this.getEnabledStreamResolvers();
+
+    for (const resolver of resolvers) {
+      try {
+        if (resolver === "direct-innertube") {
+          const stream = await createDirectInnertubeStream(videoId);
+          if (stream) return stream;
+          console.warn(
+            "[YouTubeExtractor] direct-innertube returned no stream."
+          );
+        }
+
+        if (resolver === "sabr") {
+          if (!this.innertube) throw new Error("Innertube not initialized.");
+          const stream = await createSabrStream(videoId);
+          if (stream) return stream as ExtractorStreamable;
+          console.warn(
+            "[YouTubeExtractor] sabr returned no stream."
+          );
+        }
+      } catch (error) {
+        console.warn(`[YouTubeExtractor] ${resolver} resolver failed: ${error}`);
+      }
+    }
+
+    throw new Error(
+      `All configured stream resolvers failed: ${resolvers.join(", ")}.`
+    );
+  }
+
+  private selectBestBridgeVideo(
+    track: Track,
+    results: unknown[]
+  ): YTNodes.Video | null {
+    const title = normalizeMatchText(track.title);
+    const author = normalizeMatchText(
+      typeof (track as any).author === "string"
+        ? (track as any).author
+        : (track as any).author?.name ?? (track as any).raw?.author?.name
+    );
+    const duration = Math.round((track.durationMS ?? 0) / 1000);
+    const trackVariants = detectVariants(title);
+    let best: YTNodes.Video | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    for (const candidate of results) {
+      if ((candidate as any)?.type !== "Video" || !(candidate as any)?.video_id) continue;
+      const video = candidate as YTNodes.Video;
+      if (video.is_live) continue;
+      const candidateTitle = normalizeMatchText(video.title?.text);
+      const candidateDuration = video.duration?.seconds ?? 0;
+      let score = 0;
+
+      if (title && candidateTitle.includes(title)) {
+        score += 100;
+      } else {
+        const words = title.split(/\s+/).filter((word) => word.length > 2);
+        if (words.length) {
+          score += (words.filter((word) => candidateTitle.includes(word)).length / words.length) * 60;
+        }
+      }
+
+      if (author && candidateTitle.includes(author)) score += 30;
+
+      const candidateVariants = detectVariants(candidateTitle);
+      for (const variant of new Set([...trackVariants, ...candidateVariants])) {
+        score += trackVariants.has(variant) === candidateVariants.has(variant)
+          ? 15
+          : -(VARIANT_PENALTIES[variant] ?? 350);
+      }
+
+      if (duration > 0 && candidateDuration > 0) {
+        const difference = Math.abs(candidateDuration - duration);
+        if (difference <= 4) score += 150;
+        else if (difference <= 10) score += 50;
+        else if (difference <= 20) score += 10;
+        else if (difference <= 40) score -= difference * 3;
+        else score -= 500 + difference * 5;
+      }
+
+      if (score > bestScore) {
+        best = video;
+        bestScore = score;
+      }
+    }
+
+    return best;
   }
 
   async getRelatedTracks(
@@ -470,24 +634,20 @@ export class YoutubeExtractor extends BaseExtractor<ExtractorInitOptions> {
       let topVideoId: string | null = null;
       for (const q of candidates) {
         const results = await searchYoutubeByQueryName(this.innertube!, q);
-        const first = results?.results
-          .filter(
-            (v: any): v is YTNodes.Video => v?.type === "Video" && !!v?.video_id
-          )
-          .at(0);
-        if (first?.video_id) {
-          topVideoId = first.video_id;
+        const best = this.selectBestBridgeVideo(track, results?.results ?? []);
+        if (best?.video_id) {
+          topVideoId = best.video_id;
           break;
         }
       }
 
       if (!topVideoId) return null;
 
-      const nodeStream = await createSabrStream(
+      return await this.resolveStream(
+        track,
         topVideoId,
-        (this.options as ExtractorInitOptions)?.sabrPlaybackOptions
+        this.options as ExtractorInitOptions
       );
-      return nodeStream ?? null;
     } catch (error) {
       console.error(`[YouTubeExtractor] Bridge error: ${error}`);
       return null;

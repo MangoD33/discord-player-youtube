@@ -35,7 +35,7 @@ await player.extractors.register(YoutubeExtractor, {
 
 ## Configuration
 
-A YouTube cookie is required for streaming to work. Pass it through the `cookie` option or `YOUTUBE_COOKIE` environment variable.
+A YouTube cookie is required for the YouTube/SABR fallback. Pass it through the `cookie` option or `YOUTUBE_COOKIE` environment variable.
 
 | Option                 | Type    | Default              | Description                                                                                                                 |
 | ---------------------- | ------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -54,8 +54,6 @@ A YouTube cookie is required for streaming to work. Pass it through the `cookie`
 ### Advanced Configuration
 
 - `innertubeConfigRaw` (optional): Pass-through to Innertube.create() (type: [InnerTubeConfig](https://ytjs.dev/api/type-aliases/SessionOptions.html)).
-- `sabrPlaybackOptions` (optional): Type-safe pass-through to SABR playback configuration (type: [SabrPlaybackOptions](https://ytjs.dev/googlevideo/api/exports/sabr-stream/interfaces/SabrPlaybackOptions.html)).
-  > Default: medium audio quality, audio-only, prefer H264.
 
 ## License
 
